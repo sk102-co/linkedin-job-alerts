@@ -1,0 +1,32 @@
+{
+  "name": "linkedin-job-alert",
+  "version": "1.0.0",
+  "description": "AI agent that monitors Gmail for LinkedIn job alerts and maintains a deduplicated Google Sheet",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "functions-framework --target=processJobAlerts --source=dist",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "setup-oauth": "ts-node scripts/setup-oauth.ts",
+    "deploy": "npm run build && source .env && gcloud functions deploy gc-linkedin-job-alert --gen2 --runtime=nodejs20 --trigger-http --entry-point=processJobAlerts --memory=256MB --timeout=60s --region=$GCP_REGION --set-env-vars=GCP_PROJECT_ID=$GCP_PROJECT_ID,SPREADSHEET_ID=$SPREADSHEET_ID --source=."
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^3.4.0",
+    "@google-cloud/secret-manager": "^5.6.0",
+    "googleapis": "^140.0.0",
+    "cheerio": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
