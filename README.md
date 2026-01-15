@@ -1,6 +1,6 @@
 # LinkedIn Job Alert Agent
 
-Automated tool that processes LinkedIn job alert emails and maintains a deduplicated job list in Google Sheets.
+Automated tool that processes LinkedIn job alert emails, matches jobs against your resume using AI, and maintains a deduplicated job list in Google Sheets.
 
 ## The Problem
 
@@ -13,13 +13,19 @@ This serverless agent:
 1. **Fetches** unread LinkedIn job alert emails from Gmail
 2. **Parses** job listings from the HTML email content
 3. **Deduplicates** jobs using LinkedIn's unique job ID
-4. **Stores** them in a Google Sheet with status tracking
-5. **Marks** processed emails as read and archives them
+4. **Analyzes** each job against your resume using Gemini 2.5 Flash AI
+5. **Scores** match probability (0-100%) using Google Search grounding
+6. **Stores** them in a Google Sheet with status tracking
+7. **Marks** processed emails as read and archives them
 
-The result: a clean, organized spreadsheet of unique job opportunities that you can review at your own pace.
+The result: a clean, organized spreadsheet of unique job opportunities ranked by how well they match your background.
 
 ## Features
 
+- **AI-powered matching** — Gemini 2.5 Flash analyzes each job against your resume
+- **Match probability** — See a 0-100% score for how well each job fits your background
+- **Smart filtering** — Jobs below 70% match are auto-labeled "LOW MATCH"
+- **Google Search grounding** — AI fetches actual job descriptions from LinkedIn postings
 - **Multi-sender support** — Processes emails from `jobalerts-noreply@linkedin.com`, `jobs-noreply@linkedin.com`, and `jobs-listings@linkedin.com`
 - **Intelligent deduplication** — Same job appearing in 10 emails? You'll see it once
 - **Status tracking** — Mark jobs as NEW, INTERESTED, APPLIED, etc.
@@ -30,7 +36,8 @@ The result: a clean, organized spreadsheet of unique job opportunities that you 
 ## Tech Stack
 
 - **Runtime:** Google Cloud Functions (Node.js 20)
-- **APIs:** Gmail API, Google Sheets API
+- **AI:** Gemini 2.5 Flash with Google Search grounding
+- **APIs:** Gmail API, Google Sheets API, Google Docs API
 - **Auth:** OAuth 2.0 with refresh tokens
 - **Secrets:** Google Secret Manager
 - **Scheduler:** Google Cloud Scheduler
@@ -41,13 +48,13 @@ The result: a clean, organized spreadsheet of unique job opportunities that you 
 | Column | Field | Description |
 |--------|-------|-------------|
 | A | job_id | LinkedIn job ID (deduplication key) |
-| B | status | Dropdown: NEW, READ, INTERESTED, APPLIED, etc. |
+| B | status | Dropdown: NEW, LOW MATCH, NOT AVAILABLE, etc. |
 | C | date_added | When the job was first seen |
 | D | date_modified | Last update timestamp |
-| E | job_title | Position title |
-| F | company | Company name |
-| G | office_location | Location (city, state, country) |
-| H | work_type | Remote, On-site, or Hybrid |
+| E | probability | AI match score (0-100%) |
+| F | job_title | Position title |
+| G | company | Company name |
+| H | location | Location with work type (e.g., "San Francisco, CA (Remote)") |
 | I | url | Direct link to LinkedIn job posting |
 | J | notes | Your notes (never overwritten) |
 
@@ -81,6 +88,14 @@ SPREADSHEET_ID=your-google-sheet-id
 GCP_REGION=us-central1
 ```
 
+Optional (for AI matching):
+
+```
+RESUME_DOC_ID=your-google-doc-id
+```
+
+To enable AI-powered job matching, create a Google Doc with your resume and set `RESUME_DOC_ID` to the document ID from the URL (the part after `/d/` and before `/edit`).
+
 ## Development
 
 ```bash
@@ -109,16 +124,20 @@ With default settings (running every 4 hours = ~180 invocations/month):
 | Cloud Functions | ~180 invocations | Free tier |
 | Secret Manager | 3 secrets | Free tier |
 | Cloud Scheduler | 1 job | Free tier |
+| Gemini API | ~500 requests/month | Free tier (up to 1,500/day) |
 
 **Total: $0/month** within free tier limits.
+
+Note: Gemini 2.5 Flash with Google Search grounding is free within Google AI Studio's generous limits. Each job analysis takes ~30-40 seconds due to search grounding.
 
 ## Security
 
 - OAuth credentials stored in Secret Manager, not local files
-- Minimal API scopes (`gmail.modify`, `spreadsheets`)
+- Minimal API scopes (`gmail.modify`, `spreadsheets`, `documents.readonly`)
 - Sender validation (defense in depth beyond Gmail query)
 - URL validation (only LinkedIn job URLs accepted)
 - Formula injection prevention in cell values
+- Resume data stays within Google's ecosystem (Docs → Gemini)
 
 ## License
 

@@ -391,4 +391,37 @@ export class SheetsWriter {
     }
     return this.existingJobs!.has(jobId);
   }
+
+  /**
+   * Returns the set of existing job IDs for filtering before analysis
+   * Also returns job IDs that exist but don't have a probability score yet
+   */
+  async getExistingJobIds(): Promise<{
+    allJobIds: Set<string>;
+    jobsNeedingAnalysis: Set<string>;
+  }> {
+    if (this.existingJobs === null) {
+      await this.loadExistingJobs();
+    }
+
+    const allJobIds = new Set<string>();
+    const jobsNeedingAnalysis = new Set<string>();
+
+    for (const [jobId, data] of this.existingJobs!) {
+      allJobIds.add(jobId);
+      // Jobs that exist but don't have probability and are still NEW status
+      if (data.probability === null && data.status === JobStatus.NEW) {
+        jobsNeedingAnalysis.add(jobId);
+      }
+    }
+
+    return { allJobIds, jobsNeedingAnalysis };
+  }
+
+  /**
+   * Gets existing job data for a specific job ID (for re-analysis)
+   */
+  getExistingJobData(jobId: string): ExistingJobData | undefined {
+    return this.existingJobs?.get(jobId);
+  }
 }

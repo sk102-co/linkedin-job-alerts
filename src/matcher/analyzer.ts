@@ -1,3 +1,35 @@
+/**
+ * @module matcher/analyzer
+ *
+ * Orchestrates job-resume matching analysis.
+ *
+ * This module coordinates the job matching workflow:
+ * 1. Loads the candidate's resume from Google Docs (cached for session)
+ * 2. Analyzes each job using Gemini AI with rate limiting
+ * 3. Determines job status based on match probability threshold
+ * 4. Returns aggregated statistics for logging
+ *
+ * Status determination:
+ * - Jobs with probability >= 70% get status "NEW" (worth reviewing)
+ * - Jobs with probability < 70% get status "LOW MATCH" (likely poor fit)
+ * - Jobs that couldn't be analyzed get status "NOT AVAILABLE" (posting expired/inaccessible)
+ *
+ * Rate limiting:
+ * - 500ms delay between API calls to avoid Gemini rate limits
+ * - Each analysis takes ~30-40 seconds due to Google Search grounding
+ *
+ * @example
+ * ```typescript
+ * const analyzer = new JobResumeAnalyzer(geminiClient, docsClient, logger);
+ * await analyzer.loadResume(resumeDocId);
+ * const results = await analyzer.analyzeJobs(jobs);
+ *
+ * for (const [jobId, result] of results) {
+ *   console.log(`${jobId}: ${result.probability}% - ${result.status}`);
+ * }
+ * ```
+ */
+
 import { GeminiClient } from '../gemini';
 import { DocsClient } from '../docs';
 import { Logger } from '../utils/logger';

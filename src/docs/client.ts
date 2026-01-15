@@ -1,3 +1,26 @@
+/**
+ * @module docs/client
+ *
+ * Google Docs API client for fetching resume content.
+ *
+ * This module provides a client to read Google Docs documents, specifically designed
+ * to extract plain text from a user's resume stored in Google Docs. The extracted
+ * text is then used by the Gemini AI to match job postings against the candidate's
+ * qualifications.
+ *
+ * Features:
+ * - OAuth 2.0 authentication via refresh token stored in Secret Manager
+ * - Extracts plain text from paragraphs, tables, and nested content
+ * - Masks document IDs in logs for privacy protection
+ *
+ * @example
+ * ```typescript
+ * const docsClient = new DocsClient(projectId, logger);
+ * await docsClient.initialize();
+ * const resumeText = await docsClient.getDocumentText(documentId);
+ * ```
+ */
+
 import { google, docs_v1 } from 'googleapis';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { Logger } from '../utils/logger';

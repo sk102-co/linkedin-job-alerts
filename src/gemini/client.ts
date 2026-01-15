@@ -1,3 +1,35 @@
+/**
+ * @module gemini/client
+ *
+ * Gemini AI client for job-resume matching analysis.
+ *
+ * This module uses Google's Gemini 2.5 Flash model with Google Search grounding
+ * to analyze job postings and calculate match probabilities against a candidate's
+ * resume. The grounding feature allows Gemini to search and fetch actual job
+ * descriptions from LinkedIn URLs, enabling accurate analysis.
+ *
+ * Key features:
+ * - Google Search grounding to fetch live job descriptions from LinkedIn
+ * - Conservative scoring with explicit penalty guidelines (0-100 scale)
+ * - Retry logic: falls back to non-grounded analysis if search fails
+ * - Structured JSON response parsing with markdown code block handling
+ *
+ * Scoring guidelines:
+ * - 0-40: Poor match (missing required qualifications)
+ * - 41-55: Below average (meets minimum but gaps in preferred)
+ * - 56-70: Average match (most requirements met)
+ * - 71-80: Good match (all required, most preferred)
+ * - 81-100: Strong/exceptional match (exceeds requirements)
+ *
+ * @example
+ * ```typescript
+ * const geminiClient = new GeminiClient(projectId, logger);
+ * await geminiClient.initialize();
+ * const result = await geminiClient.calculateMatchProbability(job, resumeText);
+ * console.log(result.probability, result.reasoning);
+ * ```
+ */
+
 import { GoogleGenAI } from '@google/genai';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { Logger } from '../utils/logger';
