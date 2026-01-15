@@ -5,9 +5,14 @@
  *
  * This module coordinates the job matching workflow:
  * 1. Loads the candidate's resume from Google Docs (cached for session)
- * 2. Analyzes each job using Gemini AI with rate limiting
+ * 2. Analyzes each job using AI (Gemini, Claude, or both) with rate limiting
  * 3. Determines job status based on match probability threshold
  * 4. Returns aggregated statistics for logging
+ *
+ * Dual-model analysis (optional):
+ * - When both Gemini and Claude are configured, runs both analyses
+ * - Final probability is the average of both scores (ensemble)
+ * - Individual scores stored for comparison (geminiProbability, claudeProbability)
  *
  * Status determination:
  * - Jobs with probability >= 70% get status "NEW" (worth reviewing)
@@ -15,22 +20,31 @@
  * - Jobs that couldn't be analyzed get status "NOT AVAILABLE" (posting expired/inaccessible)
  *
  * Rate limiting:
- * - 500ms delay between API calls to avoid Gemini rate limits
- * - Each analysis takes ~30-40 seconds due to Google Search grounding
+ * - 500ms delay between API calls to avoid rate limits
+ * - Each analysis takes ~30-40 seconds due to Google Search grounding (Gemini)
  *
  * @example
  * ```typescript
+ * // Single model (Gemini only)
  * const analyzer = new JobResumeAnalyzer(geminiClient, docsClient, logger);
+ *
+ * // Dual model (Gemini + Claude for comparison)
+ * const analyzer = new JobResumeAnalyzer(geminiClient, docsClient, logger, claudeClient);
+ *
  * await analyzer.loadResume(resumeDocId);
  * const results = await analyzer.analyzeJobs(jobs);
  *
  * for (const [jobId, result] of results) {
  *   console.log(`${jobId}: ${result.probability}% - ${result.status}`);
+ *   if (result.geminiProbability !== undefined) {
+ *     console.log(`  Gemini: ${result.geminiProbability}%, Claude: ${result.claudeProbability}%`);
+ *   }
  * }
  * ```
  */
 
 import { GeminiClient } from '../gemini';
+import { ClaudeClient } from '../claude';
 import { DocsClient } from '../docs';
 import { Logger } from '../utils/logger';
 import { Job } from '../types';
@@ -49,6 +63,14 @@ export interface MatchResult {
   probability: number | null;
   status: JobStatus;
   reasoning: string;
+  /** Gemini's individual probability score (when dual-model is enabled) */
+  geminiProbability?: number | null;
+  /** Claude's individual probability score (when dual-model is enabled) */
+  claudeProbability?: number | null;
+  /** Gemini's reasoning (when dual-model is enabled) */
+  geminiReasoning?: string;
+  /** Claude's reasoning (when dual-model is enabled) */
+  claudeReasoning?: string;
 }
 
 /**
@@ -56,14 +78,32 @@ export interface MatchResult {
  */
 export class JobResumeAnalyzer {
   private readonly geminiClient: GeminiClient;
+  private readonly claudeClient: ClaudeClient | null;
   private readonly docsClient: DocsClient;
   private readonly logger: Logger;
   private resumeText: string | null = null;
 
-  constructor(geminiClient: GeminiClient, docsClient: DocsClient, logger: Logger) {
+  /**
+   * Creates a new JobResumeAnalyzer
+   * @param geminiClient The Gemini client for AI analysis
+   * @param docsClient The Google Docs client for resume loading
+   * @param logger The logger instance
+   * @param claudeClient Optional Claude client for dual-model analysis
+   */
+  constructor(
+    geminiClient: GeminiClient,
+    docsClient: DocsClient,
+    logger: Logger,
+    claudeClient?: ClaudeClient
+  ) {
     this.geminiClient = geminiClient;
     this.docsClient = docsClient;
     this.logger = logger;
+    this.claudeClient = claudeClient ?? null;
+
+    if (this.claudeClient) {
+      this.logger.info('Dual-model analysis enabled (Gemini + Claude)');
+    }
   }
 
   /**
@@ -98,7 +138,12 @@ export class JobResumeAnalyzer {
     }
 
     try {
-      // Calculate match probability using Gemini
+      // Run dual-model analysis if Claude is configured
+      if (this.claudeClient) {
+        return await this.analyzeDualModel(job);
+      }
+
+      // Single-model analysis (Gemini only)
       const analysisResult = await this.geminiClient.calculateMatchProbability(
         job,
         this.resumeText
@@ -128,6 +173,92 @@ export class JobResumeAnalyzer {
       });
       return this.createNotAvailableResult(job.jobId);
     }
+  }
+
+  /**
+   * Performs dual-model analysis using both Gemini and Claude
+   * Runs both analyses in parallel and averages the scores
+   */
+  private async analyzeDualModel(job: Job): Promise<MatchResult> {
+    if (!this.resumeText || !this.claudeClient) {
+      return this.createDefaultResult(job.jobId);
+    }
+
+    this.logger.info('Running dual-model analysis', {
+      jobId: job.jobId,
+      title: job.title,
+    });
+
+    // Run both analyses in parallel
+    const [geminiResult, claudeResult] = await Promise.all([
+      this.geminiClient.calculateMatchProbability(job, this.resumeText).catch((error) => {
+        this.logger.error('Gemini analysis failed', {
+          jobId: job.jobId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }),
+      this.claudeClient.calculateMatchProbability(job, this.resumeText).catch((error) => {
+        this.logger.error('Claude analysis failed', {
+          jobId: job.jobId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }),
+    ]);
+
+    // Both failed - mark as not available
+    if (!geminiResult && !claudeResult) {
+      this.logger.warn('Both models failed to analyze job', {
+        jobId: job.jobId,
+        title: job.title,
+      });
+      return this.createNotAvailableResult(job.jobId);
+    }
+
+    // Calculate ensemble probability (average of available scores)
+    const geminiProbability = geminiResult?.probability ?? null;
+    const claudeProbability = claudeResult?.probability ?? null;
+
+    let probability: number | null;
+    if (geminiProbability !== null && claudeProbability !== null) {
+      // Both available - use average
+      probability = Math.round((geminiProbability + claudeProbability) / 2);
+    } else {
+      // Only one available - use that one
+      probability = geminiProbability ?? claudeProbability;
+    }
+
+    // Combine reasoning from both models
+    const reasoningParts: string[] = [];
+    if (geminiResult?.reasoning) {
+      reasoningParts.push(`Gemini: ${geminiResult.reasoning}`);
+    }
+    if (claudeResult?.reasoning) {
+      reasoningParts.push(`Claude: ${claudeResult.reasoning}`);
+    }
+    const combinedReasoning = reasoningParts.join(' | ');
+
+    const status = this.determineStatus(probability);
+
+    this.logger.info('Dual-model analysis complete', {
+      jobId: job.jobId,
+      geminiProbability,
+      claudeProbability,
+      ensembleProbability: probability,
+      status,
+    });
+
+    return {
+      jobId: job.jobId,
+      probability,
+      status,
+      reasoning: combinedReasoning,
+      geminiProbability,
+      claudeProbability,
+      geminiReasoning: geminiResult?.reasoning,
+      claudeReasoning: claudeResult?.reasoning,
+    };
   }
 
   /**

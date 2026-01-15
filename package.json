@@ -9,12 +9,13 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "setup-oauth": "ts-node scripts/setup-oauth.ts",
-    "deploy": "npm run build && source .env && gcloud functions deploy gc-linkedin-job-alert --gen2 --runtime=nodejs20 --trigger-http --entry-point=processJobAlerts --memory=256MB --timeout=540s --region=$GCP_REGION --set-env-vars=GCP_PROJECT_ID=$GCP_PROJECT_ID,SPREADSHEET_ID=$SPREADSHEET_ID,RESUME_DOC_ID=${RESUME_DOC_ID:-} --source=."
+    "deploy": "npm run build && source .env && gcloud functions deploy gc-linkedin-job-alert --gen2 --runtime=nodejs20 --trigger-http --entry-point=processJobAlerts --memory=256MB --timeout=540s --region=$GCP_REGION --set-env-vars=GCP_PROJECT_ID=$GCP_PROJECT_ID,SPREADSHEET_ID=$SPREADSHEET_ID,RESUME_DOC_ID=${RESUME_DOC_ID:-},ENABLE_CLAUDE_ANALYSIS=${ENABLE_CLAUDE_ANALYSIS:-false} --source=."
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@google-cloud/functions-framework": "^3.4.0",
     "@google-cloud/secret-manager": "^5.6.0",
     "@google/genai": "^1.36.0",

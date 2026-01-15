@@ -10,6 +10,7 @@ This guide walks you through deploying the LinkedIn Job Alert agent to Google Cl
 - A Google Sheet to store job listings (or the agent will use an existing one)
 - (Optional) A Google Docs document containing your resume for job matching
 - (Optional) A [Gemini API key](https://aistudio.google.com/app/apikey) for job-resume matching
+- (Optional) A [Claude API key](https://console.anthropic.com/settings/keys) for dual-model analysis
 
 ## Step 1: Create a Google Cloud Project
 
@@ -114,6 +115,20 @@ If you want to enable job-resume matching:
      gcloud secrets create linkedin-job-alert-gemini-api-key --data-file=-
    ```
 
+### (Optional) Store Claude API Key for Dual-Model Analysis
+
+If you want to enable dual-model analysis (Gemini + Claude ensemble scoring):
+
+1. Get a Claude API key from [Anthropic Console](https://console.anthropic.com/settings/keys)
+
+2. Store it as a secret:
+   ```bash
+   echo -n "<YOUR_CLAUDE_API_KEY>" | \
+     gcloud secrets create linkedin-job-alert-claude-api-key --data-file=-
+   ```
+
+**Note:** Dual-model analysis runs both Gemini and Claude in parallel, averaging their scores for more robust job matching. This requires both API keys to be configured.
+
 Verify secrets were created:
 ```bash
 gcloud secrets list
@@ -149,7 +164,28 @@ If you want to enable AI-powered job-resume matching:
    - Read your resume text from this document
    - Use Gemini AI to analyze how well each job matches your resume
    - Calculate a match probability (0-100%)
-   - Automatically set status to "LOW MATCH" for jobs with probability < 50%
+   - Automatically set status to "LOW MATCH" for jobs with probability < 70%
+
+## Step 5c: (Optional) Enable Dual-Model Analysis
+
+For more robust job matching, you can enable dual-model analysis that uses both Gemini and Claude:
+
+1. Ensure you have stored both API keys:
+   - Gemini API key (Step 4)
+   - Claude API key (Step 4)
+
+2. Set `ENABLE_CLAUDE_ANALYSIS=true` in your `.env` file (see Step 6)
+
+**How dual-model analysis works:**
+- Both Gemini and Claude analyze each job in parallel (no extra latency)
+- Final probability = average of both scores
+- If one model fails, the other's score is used as fallback
+- Reasoning shows both models' explanations
+
+**Benefits:**
+- More robust scoring through ensemble averaging
+- Cross-validation between different AI models
+- Automatic fallback if one API has issues
 
 ## Step 6: Deploy the Cloud Function
 
@@ -165,6 +201,8 @@ If you want to enable AI-powered job-resume matching:
    GCP_REGION=asia-northeast1
    # Optional: Enable job-resume matching
    RESUME_DOC_ID=your-google-doc-id
+   # Optional: Enable dual-model analysis (Gemini + Claude)
+   ENABLE_CLAUDE_ANALYSIS=false
    ```
 
 3. Deploy to Cloud Functions:
@@ -198,6 +236,11 @@ If you want to enable AI-powered job-resume matching:
 
    # (Optional) Grant access to Gemini API key for job matching
    gcloud secrets add-iam-policy-binding linkedin-job-alert-gemini-api-key \
+     --member="serviceAccount:$SA_EMAIL" \
+     --role="roles/secretmanager.secretAccessor"
+
+   # (Optional) Grant access to Claude API key for dual-model analysis
+   gcloud secrets add-iam-policy-binding linkedin-job-alert-claude-api-key \
      --member="serviceAccount:$SA_EMAIL" \
      --role="roles/secretmanager.secretAccessor"
    ```
@@ -343,10 +386,14 @@ With default settings (every 6 hours = 4 invocations/day):
 | Service | Monthly Usage | Estimated Cost |
 |---------|---------------|----------------|
 | Cloud Functions | ~120 invocations | Free tier |
-| Secret Manager | 3-4 secrets, ~120 accesses | Free tier |
+| Secret Manager | 3-5 secrets, ~120 accesses | Free tier |
 | Cloud Scheduler | 1 job | Free tier |
 | Gemini API (optional) | ~500 requests/month | Free tier* |
+| Claude API (optional) | ~500 requests/month | ~$1.50** |
 
-**Total: $0/month** (within free tier limits)
+**Total: $0/month** (Gemini only, within free tier limits)
+**Total: ~$1.50/month** (Dual-model with Claude enabled)
 
 *Gemini API free tier includes 60 requests/minute for gemini-2.0-flash. Job matching analyzes each new job once, so costs depend on job volume. See [Gemini API pricing](https://ai.google.dev/pricing) for details.
+
+**Claude API pricing is usage-based. Claude Sonnet costs $3/MTok input, $15/MTok output. Typical job analysis uses ~2K tokens per request. See [Claude API pricing](https://www.anthropic.com/pricing) for details.

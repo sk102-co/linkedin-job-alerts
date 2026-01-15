@@ -37,6 +37,7 @@ import { GmailClient, LinkedInEmailParser } from './gmail';
 import { SheetsClient, SheetsWriter } from './sheets';
 import { DocsClient } from './docs';
 import { GeminiClient } from './gemini';
+import { ClaudeClient } from './claude';
 import { JobResumeAnalyzer } from './matcher';
 import { JobStatus } from './sheets/schema';
 import { Logger } from './utils/logger';
@@ -49,6 +50,7 @@ const ENV_VARS = {
   PROJECT_ID: 'GCP_PROJECT_ID',
   SPREADSHEET_ID: 'SPREADSHEET_ID',
   RESUME_DOC_ID: 'RESUME_DOC_ID',
+  ENABLE_CLAUDE_ANALYSIS: 'ENABLE_CLAUDE_ANALYSIS',
 } as const;
 
 /**
@@ -183,17 +185,34 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
       ];
 
       if (jobsToAnalyze.length > 0) {
+        const enableClaudeAnalysis = process.env[ENV_VARS.ENABLE_CLAUDE_ANALYSIS] === 'true';
+
         logger.info('Resume document configured, initializing matching analysis', {
           jobsToAnalyze: jobsToAnalyze.length,
           skippingAlreadyAnalyzed: uniqueJobs.length - jobsToAnalyze.length,
+          dualModelEnabled: enableClaudeAnalysis,
         });
 
         const docsClient = new DocsClient(projectId, logger);
         const geminiClient = new GeminiClient(projectId, logger);
 
-        await Promise.all([docsClient.initialize(), geminiClient.initialize()]);
+        // Initialize Claude client if enabled
+        let claudeClient: ClaudeClient | undefined;
+        if (enableClaudeAnalysis) {
+          claudeClient = new ClaudeClient(projectId, logger);
+        }
 
-        const analyzer = new JobResumeAnalyzer(geminiClient, docsClient, logger);
+        // Initialize all clients in parallel
+        const initPromises: Promise<void>[] = [
+          docsClient.initialize(),
+          geminiClient.initialize(),
+        ];
+        if (claudeClient) {
+          initPromises.push(claudeClient.initialize());
+        }
+        await Promise.all(initPromises);
+
+        const analyzer = new JobResumeAnalyzer(geminiClient, docsClient, logger, claudeClient);
 
         try {
           await analyzer.loadResume(resumeDocId);
