@@ -3,6 +3,8 @@
  */
 export enum JobStatus {
   NEW = 'NEW',
+  LOW_MATCH = 'LOW MATCH',
+  NOT_AVAILABLE = 'NOT AVAILABLE',
   READ = 'READ',
   INTERESTED = 'INTERESTED',
   NOT_INTERESTED = 'NOT INTERESTED',
@@ -25,10 +27,10 @@ export const COLUMN_INDEX = {
   STATUS: 1,
   DATE_ADDED: 2,
   DATE_MODIFIED: 3,
-  JOB_TITLE: 4,
-  COMPANY: 5,
-  OFFICE_LOCATION: 6,
-  WORK_TYPE: 7,
+  PROBABILITY: 4,
+  JOB_TITLE: 5,
+  COMPANY: 6,
+  LOCATION: 7,
   URL: 8,
   NOTES: 9,
 } as const;
@@ -41,10 +43,10 @@ export const COLUMN_HEADERS = [
   'status',
   'date_added',
   'date_modified',
+  'probability',
   'job_title',
   'company',
-  'office_location',
-  'work_type',
+  'location',
   'url',
   'notes',
 ] as const;
@@ -89,6 +91,8 @@ export function sanitizeCellValue(value: string): string {
  */
 export const STATUS_COLORS: Record<JobStatus, { background: string; text: string }> = {
   [JobStatus.NEW]: { background: '#E3F2FD', text: '#1565C0' },
+  [JobStatus.LOW_MATCH]: { background: '#FFF9C4', text: '#F57F17' },
+  [JobStatus.NOT_AVAILABLE]: { background: '#CFD8DC', text: '#37474F' },
   [JobStatus.READ]: { background: '#F5F5F5', text: '#616161' },
   [JobStatus.INTERESTED]: { background: '#E8F5E9', text: '#2E7D32' },
   [JobStatus.NOT_INTERESTED]: { background: '#FFEBEE', text: '#C62828' },
@@ -97,3 +101,8 @@ export const STATUS_COLORS: Record<JobStatus, { background: string; text: string
   [JobStatus.DECLINED]: { background: '#ECEFF1', text: '#455A64' },
   [JobStatus.ACCEPTED]: { background: '#C8E6C9', text: '#1B5E20' },
 };
+
+/**
+ * Threshold for low match probability (jobs below this get LOW_MATCH status)
+ */
+export const LOW_MATCH_THRESHOLD = 70;

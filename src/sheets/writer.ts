@@ -7,6 +7,7 @@ import {
   JobStatus,
   sanitizeCellValue,
 } from './schema';
+import { MatchResult } from '../matcher';
 
 /**
  * Result of a write operation
@@ -24,9 +25,10 @@ interface ExistingJobData {
   rowNumber: number;
   title: string;
   company: string;
-  officeLocation: string;
-  workType: string;
+  location: string;
   url: string;
+  probability: number | null;
+  status: string;
 }
 
 /**
@@ -62,13 +64,19 @@ export class SheetsWriter {
       const row = values[i];
       const jobId = row[COLUMN_INDEX.JOB_ID] as string;
       if (jobId) {
+        const probValue = row[COLUMN_INDEX.PROBABILITY];
+        const probability = probValue !== undefined && probValue !== '' && probValue !== null
+          ? Number(probValue)
+          : null;
+
         this.existingJobs.set(jobId, {
           rowNumber: i + 1, // 1-based row number in sheet
-          title: (row[COLUMN_INDEX.JOB_TITLE] as string) || '',
-          company: (row[COLUMN_INDEX.COMPANY] as string) || '',
-          officeLocation: (row[COLUMN_INDEX.OFFICE_LOCATION] as string) || '',
-          workType: (row[COLUMN_INDEX.WORK_TYPE] as string) || '',
-          url: (row[COLUMN_INDEX.URL] as string) || '',
+          title: (row[COLUMN_INDEX.JOB_TITLE] as string) ?? '',
+          company: (row[COLUMN_INDEX.COMPANY] as string) ?? '',
+          location: (row[COLUMN_INDEX.LOCATION] as string) ?? '',
+          url: (row[COLUMN_INDEX.URL] as string) ?? '',
+          probability,
+          status: (row[COLUMN_INDEX.STATUS] as string) ?? '',
         });
       }
     }
@@ -78,8 +86,13 @@ export class SheetsWriter {
 
   /**
    * Appends new jobs and updates existing jobs if data changed
+   * @param jobs The jobs to append
+   * @param matchResults Optional match results for setting probability and status
    */
-  async appendJobs(jobs: Job[]): Promise<WriteResult> {
+  async appendJobs(
+    jobs: Job[],
+    matchResults?: Map<string, MatchResult>
+  ): Promise<WriteResult> {
     if (this.existingJobs === null) {
       await this.loadExistingJobs();
     }
@@ -114,7 +127,7 @@ export class SheetsWriter {
 
     // Add new jobs
     if (newJobs.length > 0) {
-      const rows = newJobs.map((job) => this.jobToRow(job));
+      const rows = newJobs.map((job) => this.jobToRow(job, matchResults?.get(job.jobId)));
 
       // Get the current row count to append at the correct position
       const response = await sheets.spreadsheets.values.get({
@@ -135,13 +148,15 @@ export class SheetsWriter {
 
       // Update the local cache
       for (const job of newJobs) {
+        const matchResult = matchResults?.get(job.jobId);
         this.existingJobs!.set(job.jobId, {
           rowNumber: currentRowCount + newJobs.indexOf(job) + 1,
           title: job.title,
           company: job.company,
-          officeLocation: job.officeLocation,
-          workType: job.workType,
+          location: job.location,
           url: job.url,
+          probability: matchResult?.probability ?? null,
+          status: matchResult?.status ?? JobStatus.NEW,
         });
       }
 
@@ -158,40 +173,60 @@ export class SheetsWriter {
   }
 
   /**
-   * Checks if job data has changed (excluding status, date_added, notes)
+   * Updates probability and status for existing jobs that don't have probability set yet
+   * @param matchResults Map of job IDs to match results
+   * @returns Number of jobs updated
    */
-  private hasJobChanged(job: Job, existing: ExistingJobData): boolean {
-    return (
-      sanitizeCellValue(job.title) !== existing.title ||
-      sanitizeCellValue(job.company) !== existing.company ||
-      sanitizeCellValue(job.officeLocation) !== existing.officeLocation ||
-      job.workType !== existing.workType ||
-      job.url !== existing.url
-    );
-  }
+  async updateExistingJobProbabilities(
+    matchResults: Map<string, MatchResult>
+  ): Promise<number> {
+    if (this.existingJobs === null) {
+      await this.loadExistingJobs();
+    }
 
-  /**
-   * Updates existing jobs with new data (preserving status, date_added, notes)
-   */
-  private async updateExistingJobs(
-    jobsToUpdate: { job: Job; rowNumber: number }[]
-  ): Promise<void> {
     const sheets = this.client.getApi();
     const spreadsheetId = this.client.getSpreadsheetId();
-    const now = this.formatDate(new Date());
 
-    // Use batchUpdate for efficiency
-    const data = jobsToUpdate.map(({ job, rowNumber }) => ({
-      range: `${SHEET_NAMES.JOBS}!D${rowNumber}:I${rowNumber}`,
-      values: [[
-        now, // date_modified
-        sanitizeCellValue(job.title),
-        sanitizeCellValue(job.company),
-        sanitizeCellValue(job.officeLocation),
-        job.workType,
-        job.url,
-      ]],
-    }));
+    // Find existing jobs that need probability updates
+    const jobsToUpdate: { jobId: string; rowNumber: number; matchResult: MatchResult }[] = [];
+
+    for (const [jobId, matchResult] of matchResults) {
+      const existing = this.existingJobs!.get(jobId);
+      if (existing && existing.probability === null && matchResult.probability !== null) {
+        jobsToUpdate.push({
+          jobId,
+          rowNumber: existing.rowNumber,
+          matchResult,
+        });
+      }
+    }
+
+    if (jobsToUpdate.length === 0) {
+      return 0;
+    }
+
+    // Batch update probability (column E) and potentially status (column B)
+    const data = jobsToUpdate.flatMap(({ rowNumber, matchResult }) => {
+      const updates: { range: string; values: (string | number | null)[][] }[] = [
+        {
+          range: `${SHEET_NAMES.JOBS}!E${rowNumber}`,
+          values: [[matchResult.probability]],
+        },
+      ];
+
+      // Update status to LOW_MATCH if probability < 50 and status is NEW
+      const existing = this.existingJobs!.get(
+        jobsToUpdate.find((j) => j.rowNumber === rowNumber)!.jobId
+      );
+      if (existing && existing.status === JobStatus.NEW && matchResult.status === JobStatus.LOW_MATCH) {
+        updates.push({
+          range: `${SHEET_NAMES.JOBS}!B${rowNumber}`,
+          values: [[JobStatus.LOW_MATCH]],
+        });
+      }
+
+      return updates;
+    });
 
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
@@ -202,14 +237,80 @@ export class SheetsWriter {
     });
 
     // Update local cache
+    for (const { jobId, matchResult } of jobsToUpdate) {
+      const existing = this.existingJobs!.get(jobId);
+      if (existing) {
+        existing.probability = matchResult.probability;
+        if (existing.status === JobStatus.NEW && matchResult.status === JobStatus.LOW_MATCH) {
+          existing.status = JobStatus.LOW_MATCH;
+        }
+      }
+    }
+
+    this.logger.info('Updated probabilities for existing jobs', { count: jobsToUpdate.length });
+    return jobsToUpdate.length;
+  }
+
+  /**
+   * Checks if job data has changed (excluding status, date_added, probability, notes)
+   */
+  private hasJobChanged(job: Job, existing: ExistingJobData): boolean {
+    return (
+      sanitizeCellValue(job.title) !== existing.title ||
+      sanitizeCellValue(job.company) !== existing.company ||
+      sanitizeCellValue(job.location) !== existing.location ||
+      job.url !== existing.url
+    );
+  }
+
+  /**
+   * Updates existing jobs with new data (preserving status, date_added, probability, notes)
+   */
+  private async updateExistingJobs(
+    jobsToUpdate: { job: Job; rowNumber: number }[]
+  ): Promise<void> {
+    const sheets = this.client.getApi();
+    const spreadsheetId = this.client.getSpreadsheetId();
+    const now = this.formatDate(new Date());
+
+    // Use batchUpdate for efficiency
+    // Update columns D (date_modified) and F-I (job_title, company, location, url)
+    // Skip E (probability) as it's only set on initial insert
+    const data = jobsToUpdate.flatMap(({ job, rowNumber }) => [
+      {
+        range: `${SHEET_NAMES.JOBS}!D${rowNumber}`,
+        values: [[now]], // date_modified
+      },
+      {
+        range: `${SHEET_NAMES.JOBS}!F${rowNumber}:I${rowNumber}`,
+        values: [[
+          sanitizeCellValue(job.title),
+          sanitizeCellValue(job.company),
+          sanitizeCellValue(job.location),
+          job.url,
+        ]],
+      },
+    ]);
+
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: 'USER_ENTERED',
+        data,
+      },
+    });
+
+    // Update local cache (preserve existing probability and status)
     for (const { job, rowNumber } of jobsToUpdate) {
+      const existing = this.existingJobs!.get(job.jobId);
       this.existingJobs!.set(job.jobId, {
         rowNumber,
         title: sanitizeCellValue(job.title),
         company: sanitizeCellValue(job.company),
-        officeLocation: sanitizeCellValue(job.officeLocation),
-        workType: job.workType,
+        location: sanitizeCellValue(job.location),
         url: job.url,
+        probability: existing?.probability ?? null,
+        status: existing?.status ?? '',
       });
     }
   }
@@ -247,20 +348,24 @@ export class SheetsWriter {
 
   /**
    * Converts a Job to a sheet row
+   * @param job The job to convert
+   * @param matchResult Optional match result for setting probability and status
    */
-  private jobToRow(job: Job): (string | null)[] {
+  private jobToRow(job: Job, matchResult?: MatchResult): (string | number | null)[] {
     const now = this.formatDate(new Date());
+    const status = matchResult?.status ?? JobStatus.NEW;
+    const probability = matchResult?.probability ?? null;
 
-    const row: (string | null)[] = new Array(COLUMN_INDEX.NOTES + 1).fill(null);
+    const row: (string | number | null)[] = new Array(COLUMN_INDEX.NOTES + 1).fill(null);
 
     row[COLUMN_INDEX.JOB_ID] = job.jobId;
-    row[COLUMN_INDEX.STATUS] = JobStatus.NEW;
+    row[COLUMN_INDEX.STATUS] = status;
     row[COLUMN_INDEX.DATE_ADDED] = now;
     row[COLUMN_INDEX.DATE_MODIFIED] = now;
+    row[COLUMN_INDEX.PROBABILITY] = probability;
     row[COLUMN_INDEX.JOB_TITLE] = sanitizeCellValue(job.title);
     row[COLUMN_INDEX.COMPANY] = sanitizeCellValue(job.company);
-    row[COLUMN_INDEX.OFFICE_LOCATION] = sanitizeCellValue(job.officeLocation);
-    row[COLUMN_INDEX.WORK_TYPE] = job.workType;
+    row[COLUMN_INDEX.LOCATION] = sanitizeCellValue(job.location);
     row[COLUMN_INDEX.URL] = job.url;
     row[COLUMN_INDEX.NOTES] = '';
 

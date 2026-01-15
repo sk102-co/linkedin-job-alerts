@@ -124,24 +124,21 @@ describe('LinkedInEmailParser', () => {
       expect(jobs[0].jobId).toBe('1234567890');
       expect(jobs[0].title).toBe('Software Engineer');
       expect(jobs[0].company).toBe('Acme Corp');
-      expect(jobs[0].officeLocation).toBe('San Francisco, CA');
-      expect(jobs[0].workType).toBe('On-site');
+      expect(jobs[0].location).toBe('San Francisco, CA (On-site)');
       expect(jobs[0].url).toBe('https://www.linkedin.com/jobs/view/1234567890');
 
       // Verify second job
       expect(jobs[1].jobId).toBe('9876543210');
       expect(jobs[1].title).toBe('Senior Developer');
       expect(jobs[1].company).toBe('TechStart Inc');
-      expect(jobs[1].officeLocation).toBe('United States');
-      expect(jobs[1].workType).toBe('Remote');
+      expect(jobs[1].location).toBe('United States (Remote)');
       expect(jobs[1].url).toBe('https://www.linkedin.com/jobs/view/9876543210');
 
       // Verify third job
       expect(jobs[2].jobId).toBe('5555555555');
       expect(jobs[2].title).toBe('Backend Engineer');
       expect(jobs[2].company).toBe('BigData Co');
-      expect(jobs[2].officeLocation).toBe('New York, NY');
-      expect(jobs[2].workType).toBe('Hybrid');
+      expect(jobs[2].location).toBe('New York, NY (Hybrid)');
       expect(jobs[2].url).toBe('https://www.linkedin.com/jobs/view/5555555555');
     });
 
@@ -189,15 +186,12 @@ describe('LinkedInEmailParser', () => {
       expect(jobs[2].company).toBe('BigData Co');
     });
 
-    it('should extract office location and work type from paragraph text', () => {
+    it('should extract location from paragraph text', () => {
       const jobs = parser.parseEmail(SAMPLE_EMAIL_HTML);
 
-      expect(jobs[0].officeLocation).toBe('San Francisco, CA');
-      expect(jobs[0].workType).toBe('On-site');
-      expect(jobs[1].officeLocation).toBe('United States');
-      expect(jobs[1].workType).toBe('Remote');
-      expect(jobs[2].officeLocation).toBe('New York, NY');
-      expect(jobs[2].workType).toBe('Hybrid');
+      expect(jobs[0].location).toBe('San Francisco, CA (On-site)');
+      expect(jobs[1].location).toBe('United States (Remote)');
+      expect(jobs[2].location).toBe('New York, NY (Hybrid)');
     });
   });
 

@@ -6,21 +6,15 @@ import { z } from 'zod';
 const LINKEDIN_JOB_URL_PATTERN = /^https:\/\/(?:www\.)?linkedin\.com\/jobs\/view\/\d+/;
 
 /**
- * Valid work type values
- */
-export const WORK_TYPES = ['Remote', 'On-site', 'Hybrid', ''] as const;
-export type WorkType = (typeof WORK_TYPES)[number];
-
-/**
  * Zod schema for validating parsed job data
  */
 export const JobSchema = z.object({
   jobId: z.string().min(1, 'Job ID is required'),
   title: z.string().min(1, 'Job title is required'),
   company: z.string().min(1, 'Company name is required'),
-  officeLocation: z.string(),
-  workType: z.enum(WORK_TYPES),
+  location: z.string(),
   url: z.string().regex(LINKEDIN_JOB_URL_PATTERN, 'Invalid LinkedIn job URL'),
+  probability: z.number().min(0).max(100).nullable().optional(),
 });
 
 /**
@@ -30,9 +24,9 @@ export interface Job {
   jobId: string;
   title: string;
   company: string;
-  officeLocation: string;
-  workType: WorkType;
+  location: string;
   url: string;
+  probability?: number | null;
 }
 
 /**
@@ -42,6 +36,7 @@ export interface JobRow extends Job {
   status: string;
   dateAdded: Date;
   dateModified: Date;
+  probability: number | null;
   notes: string;
 }
 

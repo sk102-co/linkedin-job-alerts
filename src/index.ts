@@ -1,6 +1,10 @@
 import { HttpFunction } from '@google-cloud/functions-framework';
 import { GmailClient, LinkedInEmailParser } from './gmail';
 import { SheetsClient, SheetsWriter } from './sheets';
+import { DocsClient } from './docs';
+import { GeminiClient } from './gemini';
+import { JobResumeAnalyzer } from './matcher';
+import { JobStatus } from './sheets/schema';
 import { Logger } from './utils/logger';
 import { Job } from './types/job';
 
@@ -10,6 +14,7 @@ import { Job } from './types/job';
 const ENV_VARS = {
   PROJECT_ID: 'GCP_PROJECT_ID',
   SPREADSHEET_ID: 'SPREADSHEET_ID',
+  RESUME_DOC_ID: 'RESUME_DOC_ID',
 } as const;
 
 /**
@@ -31,6 +36,9 @@ interface ProcessingResult {
   success: boolean;
   emailsProcessed: number;
   jobsFound: number;
+  jobsAnalyzed: number;
+  jobsLowMatch: number;
+  jobsNotAvailable: number;
   jobsAdded: number;
   jobsUpdated: number;
   jobsSkipped: number;
@@ -48,6 +56,9 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
     success: false,
     emailsProcessed: 0,
     jobsFound: 0,
+    jobsAnalyzed: 0,
+    jobsLowMatch: 0,
+    jobsNotAvailable: 0,
     jobsAdded: 0,
     jobsUpdated: 0,
     jobsSkipped: 0,
@@ -60,8 +71,9 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
     // Get required environment variables
     const projectId = getRequiredEnv(ENV_VARS.PROJECT_ID);
     const spreadsheetId = getRequiredEnv(ENV_VARS.SPREADSHEET_ID);
+    const resumeDocId = process.env[ENV_VARS.RESUME_DOC_ID]; // Optional
 
-    // Initialize clients
+    // Initialize core clients
     const gmailClient = new GmailClient(projectId, logger);
     const sheetsClient = new SheetsClient(projectId, spreadsheetId, logger);
 
@@ -111,13 +123,59 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
       after: uniqueJobs.length,
     });
 
+    // Analyze jobs for match probability (if resume is configured)
+    let matchResults: Map<string, { jobId: string; probability: number | null; status: JobStatus; reasoning: string }> | undefined;
+
+    if (resumeDocId) {
+      logger.info('Resume document configured, initializing matching analysis');
+
+      const docsClient = new DocsClient(projectId, logger);
+      const geminiClient = new GeminiClient(projectId, logger);
+
+      await Promise.all([docsClient.initialize(), geminiClient.initialize()]);
+
+      const analyzer = new JobResumeAnalyzer(geminiClient, docsClient, logger);
+
+      try {
+        await analyzer.loadResume(resumeDocId);
+        matchResults = await analyzer.analyzeJobs(uniqueJobs);
+
+        // Calculate stats
+        const matchResultValues = Array.from(matchResults.values());
+        result.jobsAnalyzed = matchResultValues.filter((r) => r.probability !== null).length;
+        result.jobsLowMatch = matchResultValues.filter((r) => r.status === JobStatus.LOW_MATCH).length;
+        result.jobsNotAvailable = matchResultValues.filter((r) => r.status === JobStatus.NOT_AVAILABLE).length;
+
+        logger.info('Job matching analysis complete', {
+          analyzed: result.jobsAnalyzed,
+          lowMatch: result.jobsLowMatch,
+          notAvailable: result.jobsNotAvailable,
+        });
+      } catch (matchError) {
+        // Log error but continue without matching - jobs will get default NEW status
+        logger.error('Job matching analysis failed, continuing without match scores', {
+          error: matchError instanceof Error ? matchError.message : String(matchError),
+        });
+      }
+    } else {
+      logger.info('No resume document configured, skipping match analysis');
+    }
+
     // Write jobs to sheet
     const writer = new SheetsWriter(sheetsClient, logger);
-    const writeResult = await writer.appendJobs(uniqueJobs);
+    const writeResult = await writer.appendJobs(uniqueJobs, matchResults);
 
     result.jobsAdded = writeResult.jobsAdded;
     result.jobsUpdated = writeResult.jobsUpdated;
     result.jobsSkipped = writeResult.jobsSkipped;
+
+    // Update probabilities for existing jobs that were analyzed
+    if (matchResults && matchResults.size > 0) {
+      const probabilitiesUpdated = await writer.updateExistingJobProbabilities(matchResults);
+      if (probabilitiesUpdated > 0) {
+        logger.info('Updated probabilities for existing jobs', { count: probabilitiesUpdated });
+      }
+    }
 
     // Mark emails as processed (label, read, archive)
     const messageIds = emails.map((e) => e.id);
@@ -127,6 +185,9 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
     logger.info('Processing complete', {
       emailsProcessed: result.emailsProcessed,
       jobsFound: result.jobsFound,
+      jobsAnalyzed: result.jobsAnalyzed,
+      jobsLowMatch: result.jobsLowMatch,
+      jobsNotAvailable: result.jobsNotAvailable,
       jobsAdded: result.jobsAdded,
       jobsUpdated: result.jobsUpdated,
       jobsSkipped: result.jobsSkipped,

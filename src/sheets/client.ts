@@ -119,10 +119,13 @@ export class SheetsClient {
       await this.ensureJobsSheetHeaders();
     }
 
-    // Create Config sheet if it doesn't exist
+    // Create Config sheet if it doesn't exist, or update it with new status values
     if (!sheetNames.has(SHEET_NAMES.CONFIG)) {
       await this.createConfigSheet();
       this.logger.info('Created _Config sheet');
+    } else {
+      // Update status values (in case new statuses were added like LOW_MATCH)
+      await this.updateConfigSheetValues();
     }
 
     // Apply formatting to Jobs sheet (idempotent)
@@ -204,6 +207,15 @@ export class SheetsClient {
     });
 
     // Add status values
+    await this.updateConfigSheetValues();
+  }
+
+  /**
+   * Updates the Config sheet with current status values (idempotent)
+   */
+  private async updateConfigSheetValues(): Promise<void> {
+    if (!this.sheets) return;
+
     const statusValues = JOB_STATUS_VALUES.map((status) => [status]);
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
@@ -221,9 +233,10 @@ export class SheetsClient {
   private async applyJobsSheetFormatting(): Promise<void> {
     if (!this.sheets) return;
 
-    // Get the Jobs sheet ID
+    // Get the Jobs sheet with existing conditional format rules
     const spreadsheet = await this.sheets.spreadsheets.get({
       spreadsheetId: this.spreadsheetId,
+      includeGridData: false,
     });
 
     const jobsSheet = spreadsheet.data.sheets?.find(
@@ -237,6 +250,17 @@ export class SheetsClient {
 
     const sheetId = jobsSheet.properties.sheetId;
     const requests: sheets_v4.Schema$Request[] = [];
+
+    // Clear existing conditional format rules first (to make this idempotent)
+    const existingRules = jobsSheet.conditionalFormats ?? [];
+    for (let i = existingRules.length - 1; i >= 0; i--) {
+      requests.push({
+        deleteConditionalFormatRule: {
+          sheetId,
+          index: i,
+        },
+      });
+    }
 
     // Freeze the header row
     requests.push({

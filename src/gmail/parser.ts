@@ -1,13 +1,7 @@
 import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
-import { Job, safeParseJob, WorkType } from '../types/job';
+import { Job, safeParseJob } from '../types/job';
 import { Logger } from '../utils/logger';
-
-/**
- * Pattern to extract work type from location string
- * Matches: "Location (Remote)", "Location (On-site)", "Location (Hybrid)"
- */
-const WORK_TYPE_PATTERN = /^(.+?)\s*\((Remote|On-site|Hybrid)\)$/i;
 
 /**
  * Regex pattern to extract job ID from LinkedIn job URL
@@ -173,15 +167,11 @@ export class LinkedInEmailParser {
       }
     }
 
-    // Parse location into office location and work type
-    const { officeLocation, workType } = this.parseLocation(location);
-
     const jobData = {
       jobId,
       title,
       company: company || 'Unknown Company',
-      officeLocation,
-      workType,
+      location,
       url,
     };
 
@@ -213,40 +203,6 @@ export class LinkedInEmailParser {
       // If URL parsing fails, return original
       return rawUrl;
     }
-  }
-
-  /**
-   * Parses a location string into office location and work type
-   * Examples:
-   *   "United States (Remote)" → { officeLocation: "United States", workType: "Remote" }
-   *   "Boston, MA" → { officeLocation: "Boston, MA", workType: "" }
-   *   "Bedford, MA (On-site)" → { officeLocation: "Bedford, MA", workType: "On-site" }
-   */
-  private parseLocation(location: string): { officeLocation: string; workType: WorkType } {
-    if (!location) {
-      return { officeLocation: '', workType: '' };
-    }
-
-    const match = location.match(WORK_TYPE_PATTERN);
-    if (match) {
-      const rawWorkType = match[2];
-      // Normalize work type to proper casing
-      let workType: WorkType = '';
-      if (rawWorkType.toLowerCase() === 'remote') {
-        workType = 'Remote';
-      } else if (rawWorkType.toLowerCase() === 'on-site') {
-        workType = 'On-site';
-      } else if (rawWorkType.toLowerCase() === 'hybrid') {
-        workType = 'Hybrid';
-      }
-      return {
-        officeLocation: match[1].trim(),
-        workType,
-      };
-    }
-
-    // No work type in parentheses - return location as-is
-    return { officeLocation: location, workType: '' };
   }
 
   /**

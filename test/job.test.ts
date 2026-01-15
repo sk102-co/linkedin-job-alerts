@@ -6,8 +6,7 @@ describe('Job validation', () => {
     jobId: '1234567890',
     title: 'Software Engineer',
     company: 'Acme Corp',
-    officeLocation: 'San Francisco, CA',
-    workType: '' as const,
+    location: 'San Francisco, CA',
     url: 'https://www.linkedin.com/jobs/view/1234567890',
   };
 
@@ -36,16 +35,18 @@ describe('Job validation', () => {
       expect(() => parseJob(invalidJob)).toThrow(ZodError);
     });
 
-    it('should accept empty officeLocation', () => {
-      const job = { ...validJob, officeLocation: '' };
+    it('should accept empty location', () => {
+      const job = { ...validJob, location: '' };
 
       expect(() => parseJob(job)).not.toThrow();
     });
 
-    it('should throw ZodError for invalid workType', () => {
-      const invalidJob = { ...validJob, workType: 'InvalidType' };
+    it('should accept valid probability values', () => {
+      const job = { ...validJob, probability: 75 };
+      expect(() => parseJob(job)).not.toThrow();
 
-      expect(() => parseJob(invalidJob)).toThrow(ZodError);
+      const jobNullProb = { ...validJob, probability: null };
+      expect(() => parseJob(jobNullProb)).not.toThrow();
     });
 
     it('should throw ZodError for invalid LinkedIn URL', () => {

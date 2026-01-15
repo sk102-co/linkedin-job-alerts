@@ -28,11 +28,14 @@ const TOKEN_OUTPUT_PATH = 'token.json';
 
 /**
  * OAuth scopes required by the application
- * Using gmail.modify to allow marking as read, adding labels, and archiving
+ * - gmail.modify: mark as read, add labels, archive
+ * - spreadsheets: read/write job data
+ * - documents.readonly: read resume for job matching
  */
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/documents.readonly',
 ];
 
 /**

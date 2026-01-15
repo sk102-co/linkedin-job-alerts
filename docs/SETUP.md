@@ -8,6 +8,8 @@ This guide walks you through deploying the LinkedIn Job Alert agent to Google Cl
 - [Node.js 20+](https://nodejs.org/) installed
 - A Google account with Gmail containing LinkedIn job alerts
 - A Google Sheet to store job listings (or the agent will use an existing one)
+- (Optional) A Google Docs document containing your resume for job matching
+- (Optional) A [Gemini API key](https://aistudio.google.com/app/apikey) for job-resume matching
 
 ## Step 1: Create a Google Cloud Project
 
@@ -28,6 +30,7 @@ This guide walks you through deploying the LinkedIn Job Alert agent to Google Cl
    gcloud services enable \
      gmail.googleapis.com \
      sheets.googleapis.com \
+     docs.googleapis.com \
      cloudfunctions.googleapis.com \
      cloudscheduler.googleapis.com \
      secretmanager.googleapis.com \
@@ -69,7 +72,7 @@ This guide walks you through deploying the LinkedIn Job Alert agent to Google Cl
 3. Follow the prompts:
    - Open the authorization URL in your browser
    - Sign in with your Google account
-   - Grant permissions for Gmail (modify) and Sheets (edit)
+   - Grant permissions for Gmail (modify), Sheets (edit), and Docs (read-only)
    - The script will capture the authorization code automatically
 
 4. The script outputs:
@@ -99,6 +102,18 @@ echo -n "<YOUR_REFRESH_TOKEN>" | \
   gcloud secrets create linkedin-job-alert-refresh-token --data-file=-
 ```
 
+### (Optional) Store Gemini API Key for Job Matching
+
+If you want to enable job-resume matching:
+
+1. Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+
+2. Store it as a secret:
+   ```bash
+   echo -n "<YOUR_GEMINI_API_KEY>" | \
+     gcloud secrets create linkedin-job-alert-gemini-api-key --data-file=-
+   ```
+
 Verify secrets were created:
 ```bash
 gcloud secrets list
@@ -119,6 +134,23 @@ gcloud secrets list
    - Conditional formatting by status
    - Hidden job_id column
 
+## Step 5b: (Optional) Set Up Resume for Job Matching
+
+If you want to enable AI-powered job-resume matching:
+
+1. Create or open a Google Doc containing your resume at [docs.google.com](https://docs.google.com)
+
+2. Copy the **Document ID** from the URL:
+   ```
+   https://docs.google.com/document/d/DOCUMENT_ID_HERE/edit
+   ```
+
+3. The agent will:
+   - Read your resume text from this document
+   - Use Gemini AI to analyze how well each job matches your resume
+   - Calculate a match probability (0-100%)
+   - Automatically set status to "LOW MATCH" for jobs with probability < 50%
+
 ## Step 6: Deploy the Cloud Function
 
 1. Create a `.env` file from the example:
@@ -131,6 +163,8 @@ gcloud secrets list
    GCP_PROJECT_ID=your-gcp-project-id
    SPREADSHEET_ID=your-google-sheet-id
    GCP_REGION=asia-northeast1
+   # Optional: Enable job-resume matching
+   RESUME_DOC_ID=your-google-doc-id
    ```
 
 3. Deploy to Cloud Functions:
@@ -149,7 +183,7 @@ gcloud secrets list
      --region=$GCP_REGION \
      --format='value(serviceConfig.serviceAccountEmail)')
 
-   # Grant secret accessor role
+   # Grant secret accessor role for OAuth secrets
    gcloud secrets add-iam-policy-binding linkedin-job-alert-client-id \
      --member="serviceAccount:$SA_EMAIL" \
      --role="roles/secretmanager.secretAccessor"
@@ -159,6 +193,11 @@ gcloud secrets list
      --role="roles/secretmanager.secretAccessor"
 
    gcloud secrets add-iam-policy-binding linkedin-job-alert-refresh-token \
+     --member="serviceAccount:$SA_EMAIL" \
+     --role="roles/secretmanager.secretAccessor"
+
+   # (Optional) Grant access to Gemini API key for job matching
+   gcloud secrets add-iam-policy-binding linkedin-job-alert-gemini-api-key \
      --member="serviceAccount:$SA_EMAIL" \
      --role="roles/secretmanager.secretAccessor"
    ```
@@ -177,11 +216,16 @@ gcloud secrets list
      "success": true,
      "emailsProcessed": 3,
      "jobsFound": 15,
-     "jobsAdded": 12,
+     "jobsAnalyzed": 10,
+     "jobsLowMatch": 4,
+     "jobsAdded": 10,
+     "jobsUpdated": 2,
      "jobsSkipped": 3,
      "runId": "run-1234567890-abc123"
    }
    ```
+
+   Note: `jobsAnalyzed` and `jobsLowMatch` will be `0` if job matching is not configured.
 
 4. Verify jobs appear in your Google Sheet.
 
@@ -299,7 +343,10 @@ With default settings (every 6 hours = 4 invocations/day):
 | Service | Monthly Usage | Estimated Cost |
 |---------|---------------|----------------|
 | Cloud Functions | ~120 invocations | Free tier |
-| Secret Manager | 3 secrets, ~120 accesses | Free tier |
+| Secret Manager | 3-4 secrets, ~120 accesses | Free tier |
 | Cloud Scheduler | 1 job | Free tier |
+| Gemini API (optional) | ~500 requests/month | Free tier* |
 
 **Total: $0/month** (within free tier limits)
+
+*Gemini API free tier includes 60 requests/minute for gemini-2.0-flash. Job matching analyzes each new job once, so costs depend on job volume. See [Gemini API pricing](https://ai.google.dev/pricing) for details.
