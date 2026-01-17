@@ -53,7 +53,7 @@ export class SheetsWriter {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SHEET_NAMES.JOBS}!A:J`,
+      range: `${SHEET_NAMES.JOBS}!A:N`,
     });
 
     const values = response.data.values ?? [];
@@ -139,7 +139,7 @@ export class SheetsWriter {
 
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${SHEET_NAMES.JOBS}!A${nextRow}:J${nextRow + rows.length - 1}`,
+        range: `${SHEET_NAMES.JOBS}!A${nextRow}:N${nextRow + rows.length - 1}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: {
           values: rows,
@@ -274,15 +274,15 @@ export class SheetsWriter {
     const now = this.formatDate(new Date());
 
     // Use batchUpdate for efficiency
-    // Update columns D (date_modified) and F-I (job_title, company, location, url)
-    // Skip E (probability) as it's only set on initial insert
+    // Update columns D (date_modified) and J-M (job_title, company, location, url)
+    // Skip E-I (probability, AI scores/arguments) as they're only set on initial insert
     const data = jobsToUpdate.flatMap(({ job, rowNumber }) => [
       {
         range: `${SHEET_NAMES.JOBS}!D${rowNumber}`,
         values: [[now]], // date_modified
       },
       {
-        range: `${SHEET_NAMES.JOBS}!F${rowNumber}:I${rowNumber}`,
+        range: `${SHEET_NAMES.JOBS}!J${rowNumber}:M${rowNumber}`,
         values: [[
           sanitizeCellValue(job.title),
           sanitizeCellValue(job.company),
@@ -363,6 +363,14 @@ export class SheetsWriter {
     row[COLUMN_INDEX.DATE_ADDED] = now;
     row[COLUMN_INDEX.DATE_MODIFIED] = now;
     row[COLUMN_INDEX.PROBABILITY] = probability;
+    row[COLUMN_INDEX.GEMINI_SCORE] = matchResult?.geminiProbability ?? null;
+    row[COLUMN_INDEX.GEMINI_ARGUMENT] = matchResult?.geminiReasoning
+      ? sanitizeCellValue(matchResult.geminiReasoning)
+      : '';
+    row[COLUMN_INDEX.CLAUDE_SCORE] = matchResult?.claudeProbability ?? null;
+    row[COLUMN_INDEX.CLAUDE_ARGUMENT] = matchResult?.claudeReasoning
+      ? sanitizeCellValue(matchResult.claudeReasoning)
+      : '';
     row[COLUMN_INDEX.JOB_TITLE] = sanitizeCellValue(job.title);
     row[COLUMN_INDEX.COMPANY] = sanitizeCellValue(job.company);
     row[COLUMN_INDEX.LOCATION] = sanitizeCellValue(job.location);

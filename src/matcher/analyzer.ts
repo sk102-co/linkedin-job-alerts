@@ -5,23 +5,25 @@
  *
  * This module coordinates the job matching workflow:
  * 1. Loads the candidate's resume from Google Docs (cached for session)
- * 2. Analyzes each job using AI (Gemini, Claude, or both) with rate limiting
+ * 2. Analyzes jobs in parallel (max 3 concurrent) using AI (Gemini, Claude, or both)
  * 3. Determines job status based on match probability threshold
  * 4. Returns aggregated statistics for logging
  *
  * Dual-model analysis (optional):
- * - When both Gemini and Claude are configured, runs both analyses
+ * - When both Gemini and Claude are configured, runs Gemini first to fetch job description
+ * - Job description from Gemini is passed to Claude for consistent evaluation
  * - Final probability is the average of both scores (ensemble)
  * - Individual scores stored for comparison (geminiProbability, claudeProbability)
+ *
+ * Parallel processing:
+ * - Up to 3 jobs are analyzed concurrently for faster throughput
+ * - Each job runs Gemini → Claude sequentially (to share job description)
+ * - Results maintain original job order
  *
  * Status determination:
  * - Jobs with probability >= 70% get status "NEW" (worth reviewing)
  * - Jobs with probability < 70% get status "LOW MATCH" (likely poor fit)
  * - Jobs that couldn't be analyzed get status "NOT AVAILABLE" (posting expired/inaccessible)
- *
- * Rate limiting:
- * - 500ms delay between API calls to avoid rate limits
- * - Each analysis takes ~30-40 seconds due to Google Search grounding (Gemini)
  *
  * @example
  * ```typescript
@@ -51,9 +53,9 @@ import { Job } from '../types';
 import { JobStatus, LOW_MATCH_THRESHOLD } from '../sheets/schema';
 
 /**
- * Delay between Gemini API calls to avoid rate limiting (ms)
+ * Maximum number of jobs to analyze concurrently
  */
-const API_CALL_DELAY_MS = 500;
+const MAX_CONCURRENT_JOBS = 3;
 
 /**
  * Represents the result of analyzing a single job
@@ -177,7 +179,7 @@ export class JobResumeAnalyzer {
 
   /**
    * Performs dual-model analysis using both Gemini and Claude
-   * Runs both analyses in parallel and averages the scores
+   * Runs Gemini first to fetch job description, then passes it to Claude
    */
   private async analyzeDualModel(job: Job): Promise<MatchResult> {
     if (!this.resumeText || !this.claudeClient) {
@@ -189,23 +191,37 @@ export class JobResumeAnalyzer {
       title: job.title,
     });
 
-    // Run both analyses in parallel
-    const [geminiResult, claudeResult] = await Promise.all([
-      this.geminiClient.calculateMatchProbability(job, this.resumeText).catch((error) => {
+    // Run Gemini first to get job description
+    const geminiResult = await this.geminiClient
+      .calculateMatchProbability(job, this.resumeText)
+      .catch((error) => {
         this.logger.error('Gemini analysis failed', {
           jobId: job.jobId,
           error: error instanceof Error ? error.message : String(error),
         });
         return null;
-      }),
-      this.claudeClient.calculateMatchProbability(job, this.resumeText).catch((error) => {
+      });
+
+    // Extract job description from Gemini's response to share with Claude
+    const jobDescription = geminiResult?.jobDescription;
+
+    if (jobDescription) {
+      this.logger.info('Job description fetched by Gemini, sharing with Claude', {
+        jobId: job.jobId,
+        descriptionLength: jobDescription.length,
+      });
+    }
+
+    // Run Claude with the job description (if available)
+    const claudeResult = await this.claudeClient
+      .calculateMatchProbability(job, this.resumeText, jobDescription)
+      .catch((error) => {
         this.logger.error('Claude analysis failed', {
           jobId: job.jobId,
           error: error instanceof Error ? error.message : String(error),
         });
         return null;
-      }),
-    ]);
+      });
 
     // Both failed - mark as not available
     if (!geminiResult && !claudeResult) {
@@ -262,7 +278,7 @@ export class JobResumeAnalyzer {
   }
 
   /**
-   * Analyzes multiple jobs with rate limiting
+   * Analyzes multiple jobs with parallel processing (max 3 concurrent)
    * @param jobs The jobs to analyze
    * @returns Map of job ID to match result
    */
@@ -281,30 +297,67 @@ export class JobResumeAnalyzer {
       return results;
     }
 
-    this.logger.info('Starting job analysis', { jobCount: jobs.length });
+    this.logger.info('Starting parallel job analysis', {
+      jobCount: jobs.length,
+      maxConcurrent: MAX_CONCURRENT_JOBS,
+    });
 
+    // Process jobs in parallel with concurrency limit
+    const jobResults = await this.processWithConcurrencyLimit(
+      jobs,
+      async (job, index) => {
+        this.logger.info('Analyzing job', {
+          index: index + 1,
+          total: jobs.length,
+          jobId: job.jobId,
+          title: job.title,
+        });
+        return this.analyzeJob(job);
+      },
+      MAX_CONCURRENT_JOBS
+    );
+
+    // Populate results map
     for (let i = 0; i < jobs.length; i++) {
-      const job = jobs[i];
-
-      this.logger.info('Analyzing job', {
-        index: i + 1,
-        total: jobs.length,
-        jobId: job.jobId,
-        title: job.title,
-      });
-
-      const result = await this.analyzeJob(job);
-      results.set(job.jobId, result);
-
-      // Add delay between API calls to avoid rate limiting (except for last job)
-      if (i < jobs.length - 1) {
-        await this.delay(API_CALL_DELAY_MS);
-      }
+      results.set(jobs[i].jobId, jobResults[i]);
     }
 
     const stats = this.calculateStats(results);
     this.logger.info('Job analysis complete', stats);
 
+    return results;
+  }
+
+  /**
+   * Processes items with a concurrency limit
+   * @param items Items to process
+   * @param processor Function to process each item
+   * @param limit Maximum concurrent operations
+   * @returns Array of results in same order as input
+   */
+  private async processWithConcurrencyLimit<T, R>(
+    items: T[],
+    processor: (item: T, index: number) => Promise<R>,
+    limit: number
+  ): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    let currentIndex = 0;
+
+    const runNext = async (): Promise<void> => {
+      while (currentIndex < items.length) {
+        const index = currentIndex++;
+        const item = items[index];
+        results[index] = await processor(item, index);
+      }
+    };
+
+    // Start up to 'limit' concurrent workers
+    const workers = Array.from(
+      { length: Math.min(limit, items.length) },
+      () => runNext()
+    );
+
+    await Promise.all(workers);
     return results;
   }
 
@@ -377,10 +430,4 @@ export class JobResumeAnalyzer {
     };
   }
 
-  /**
-   * Delays execution for specified milliseconds
-   */
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }

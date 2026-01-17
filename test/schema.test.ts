@@ -64,6 +64,10 @@ describe('Column definitions', () => {
       'date_added',
       'date_modified',
       'probability',
+      'gemini_score',
+      'gemini_argument',
+      'claude_score',
+      'claude_argument',
       'job_title',
       'company',
       'location',
@@ -78,11 +82,15 @@ describe('Column definitions', () => {
     expect(COLUMN_INDEX.DATE_ADDED).toBe(2);
     expect(COLUMN_INDEX.DATE_MODIFIED).toBe(3);
     expect(COLUMN_INDEX.PROBABILITY).toBe(4);
-    expect(COLUMN_INDEX.JOB_TITLE).toBe(5);
-    expect(COLUMN_INDEX.COMPANY).toBe(6);
-    expect(COLUMN_INDEX.LOCATION).toBe(7);
-    expect(COLUMN_INDEX.URL).toBe(8);
-    expect(COLUMN_INDEX.NOTES).toBe(9);
+    expect(COLUMN_INDEX.GEMINI_SCORE).toBe(5);
+    expect(COLUMN_INDEX.GEMINI_ARGUMENT).toBe(6);
+    expect(COLUMN_INDEX.CLAUDE_SCORE).toBe(7);
+    expect(COLUMN_INDEX.CLAUDE_ARGUMENT).toBe(8);
+    expect(COLUMN_INDEX.JOB_TITLE).toBe(9);
+    expect(COLUMN_INDEX.COMPANY).toBe(10);
+    expect(COLUMN_INDEX.LOCATION).toBe(11);
+    expect(COLUMN_INDEX.URL).toBe(12);
+    expect(COLUMN_INDEX.NOTES).toBe(13);
   });
 
   it('should have header count matching column count', () => {

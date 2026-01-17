@@ -53,6 +53,7 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 export interface MatchAnalysisResult {
   probability: number;
   reasoning: string;
+  jobDescription?: string;
 }
 
 /**
@@ -184,7 +185,7 @@ Score the match probability from 0-100. BE CONSERVATIVE AND REALISTIC.
 ## RESPONSE FORMAT
 
 Respond ONLY with valid JSON (no markdown, no code blocks):
-{"probability": <number 0-100>, "reasoning": "<2-3 sentences citing SPECIFIC requirements from the job posting and how the candidate does or doesn't meet them>"}`;
+{"probability": <number 0-100>, "reasoning": "<2-3 sentences citing SPECIFIC requirements from the job posting and how the candidate does or doesn't meet them>", "jobDescription": "<summarized job description including: role overview, required qualifications, preferred qualifications, key responsibilities, and any specific requirements like years of experience or technologies>"}`;
 
     // Try with Google Search grounding first, retry without if it fails
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -228,15 +229,26 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
 
         const probability = Math.max(0, Math.min(100, Math.round(parsed.probability)));
 
+        // Ensure jobDescription is a string (Gemini may return it as an object)
+        let jobDescription: string | undefined;
+        if (parsed.jobDescription) {
+          jobDescription = typeof parsed.jobDescription === 'string'
+            ? parsed.jobDescription
+            : JSON.stringify(parsed.jobDescription);
+        }
+
         this.logger.info('Match probability calculated', {
           probability,
           reasoning: parsed.reasoning,
+          hasJobDescription: Boolean(jobDescription),
+          jobDescriptionType: typeof parsed.jobDescription,
           useGrounding,
         });
 
         return {
           probability,
           reasoning: parsed.reasoning ?? '',
+          jobDescription,
         };
       } catch (error) {
         this.logger.error('Failed to calculate match probability', {

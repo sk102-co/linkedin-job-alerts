@@ -158,7 +158,7 @@ export class SheetsClient {
     // Add headers
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
-      range: `${SHEET_NAMES.JOBS}!A1:J1`,
+      range: `${SHEET_NAMES.JOBS}!A1:N1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [[...COLUMN_HEADERS]],
@@ -175,7 +175,7 @@ export class SheetsClient {
 
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
-      range: `${SHEET_NAMES.JOBS}!A1:J1`,
+      range: `${SHEET_NAMES.JOBS}!A1:N1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [[...COLUMN_HEADERS]],

@@ -106,11 +106,13 @@ export class ClaudeClient {
    * Calculates match probability between a job and resume
    * @param job The job from the email (title, company, location, url)
    * @param resumeText The candidate's resume text
+   * @param jobDescription Optional job description fetched by Gemini
    * @returns Match probability (0-100) or null if analysis fails
    */
   async calculateMatchProbability(
     job: Job,
-    resumeText: string
+    resumeText: string,
+    jobDescription?: string
   ): Promise<MatchAnalysisResult | null> {
     if (!this.client) {
       throw new Error('Claude client not initialized. Call initialize() first.');
@@ -119,26 +121,45 @@ export class ClaudeClient {
     this.logger.info('Calculating match probability with Claude', {
       jobTitle: job.title,
       company: job.company,
+      hasJobDescription: Boolean(jobDescription),
     });
 
-    const prompt = `You are a strict, realistic technical recruiter evaluating job fit. Your assessments directly impact whether candidates waste time applying to unsuitable positions.
-
-## JOB INFORMATION
+    const jobInfoSection = jobDescription
+      ? `## JOB INFORMATION
 
 Job: "${job.title}" at "${job.company}" in "${job.location}"
 LinkedIn URL: ${job.url}
 
-Note: You don't have access to the full job description. Base your analysis on the job title, company, and location provided, combined with typical requirements for this type of role.
+## JOB DESCRIPTION
 
-## CANDIDATE'S RESUME
+${jobDescription}`
+      : `## JOB INFORMATION
 
-${resumeText}
+Job: "${job.title}" at "${job.company}" in "${job.location}"
+LinkedIn URL: ${job.url}
 
-## STRICT MATCH EVALUATION
+Note: You don't have access to the full job description. Base your analysis on the job title, company, and location provided, combined with typical requirements for this type of role.`;
 
-Score the match probability from 0-100. BE CONSERVATIVE AND REALISTIC.
+    const penaltiesSection = jobDescription
+      ? `### AUTOMATIC SCORE PENALTIES (apply these strictly):
 
-### AUTOMATIC SCORE PENALTIES (apply these strictly):
+**Critical gaps (each reduces score by 15-25 points):**
+- Missing a REQUIRED technical skill explicitly listed in the job description
+- Less experience than the MINIMUM years required
+- Missing required degree/certification if stated as "required"
+- No experience in a required industry/domain (e.g., "fintech experience required")
+
+**Significant gaps (each reduces score by 10-15 points):**
+- Missing 2+ preferred technical skills
+- Experience is in a different domain (e.g., B2C vs B2B, startup vs enterprise)
+- Location mismatch for non-remote roles
+- Missing preferred degree level (e.g., has BS, role prefers MS/PhD)
+
+**Minor gaps (each reduces score by 5-10 points):**
+- Missing 1 preferred skill
+- Slightly less experience than preferred (but meets minimum)
+- Related but not exact industry experience`
+      : `### AUTOMATIC SCORE PENALTIES (apply these strictly):
 
 **Critical gaps (each reduces score by 15-25 points):**
 - Missing a REQUIRED technical skill typically needed for this role type
@@ -153,7 +174,25 @@ Score the match probability from 0-100. BE CONSERVATIVE AND REALISTIC.
 **Minor gaps (each reduces score by 5-10 points):**
 - Missing 1 preferred skill
 - Slightly less experience than typically preferred
-- Related but not exact industry experience
+- Related but not exact industry experience`;
+
+    const reasoningInstruction = jobDescription
+      ? '2-3 sentences citing SPECIFIC requirements from the job description and how the candidate does or doesn\'t meet them'
+      : '2-3 sentences explaining how the candidate\'s specific skills and experience align or don\'t align with typical requirements for this role type';
+
+    const prompt = `You are a strict, realistic technical recruiter evaluating job fit. Your assessments directly impact whether candidates waste time applying to unsuitable positions.
+
+${jobInfoSection}
+
+## CANDIDATE'S RESUME
+
+${resumeText}
+
+## STRICT MATCH EVALUATION
+
+Score the match probability from 0-100. BE CONSERVATIVE AND REALISTIC.
+
+${penaltiesSection}
 
 ### SCORING SCALE:
 
@@ -168,8 +207,8 @@ Score the match probability from 0-100. BE CONSERVATIVE AND REALISTIC.
 ### IMPORTANT GUIDELINES:
 
 1. Start at 50 (neutral) and adjust based on gaps and strengths
-2. NEVER score above 75 if candidate likely lacks core skills for the role
-3. NEVER score above 60 if the candidate lacks the core technical skills for the role type
+2. NEVER score above 75 if ANY required qualification is missing
+3. NEVER score above 60 if the candidate lacks the core technical skills for the role
 4. Most candidates should realistically score between 35-65
 5. A score of 70+ should be reserved for genuinely strong matches
 6. Consider: would this resume make it past an ATS and initial recruiter screen?
@@ -177,7 +216,7 @@ Score the match probability from 0-100. BE CONSERVATIVE AND REALISTIC.
 ## RESPONSE FORMAT
 
 Respond ONLY with valid JSON (no markdown, no code blocks):
-{"probability": <number 0-100>, "reasoning": "<2-3 sentences explaining how the candidate's specific skills and experience align or don't align with typical requirements for this role type>"}`;
+{"probability": <number 0-100>, "reasoning": "<${reasoningInstruction}>"}`;
 
     try {
       const response = await this.client.messages.create({
