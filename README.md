@@ -157,6 +157,35 @@ With default settings (running every 4 hours = ~180 invocations/month):
 
 Note: Gemini 2.5 Flash with Google Search grounding is free within Google AI Studio's generous limits. Each job analysis takes ~30-40 seconds due to search grounding.
 
+## Privacy & Data Handling
+
+**Important:** When AI matching is enabled, your resume and job descriptions are sent to external AI services for analysis.
+
+### Data Shared with AI Providers
+
+| Data | Gemini (Google) | Claude (Anthropic) |
+|------|-----------------|-------------------|
+| Resume text | ✓ Always (when matching enabled) | ✓ Only if dual-model enabled |
+| Job descriptions | ✓ Fetched via Google Search | ✓ Received from Gemini |
+| Job titles/companies | ✓ Yes | ✓ Yes |
+
+### Data Retention
+
+- **Google Gemini**: Subject to [Google AI Studio Terms](https://ai.google.dev/terms). API inputs may be logged for abuse monitoring.
+- **Anthropic Claude**: Subject to [Anthropic API Terms](https://www.anthropic.com/api-terms). API requests are logged for 30 days by default.
+- **Your Google Sheet**: Stored in your Google account under your control.
+- **Cloud Function logs**: Retained per your GCP logging settings. Sensitive data (tokens, emails) is automatically masked.
+
+### What's NOT Shared
+
+- OAuth tokens and API keys (stored in Secret Manager, never sent to AI)
+- Your email content (only parsed job data is extracted)
+- Your Google account credentials
+
+### Opting Out of AI Analysis
+
+To use this tool without sending data to AI providers, simply don't set `RESUME_DOC_ID`. Jobs will still be deduplicated and stored, but without match scoring.
+
 ## Security
 
 - OAuth credentials stored in Secret Manager, not local files
@@ -164,7 +193,7 @@ Note: Gemini 2.5 Flash with Google Search grounding is free within Google AI Stu
 - Sender validation (defense in depth beyond Gmail query)
 - URL validation (only LinkedIn job URLs accepted)
 - Formula injection prevention in cell values
-- Resume data stays within Google's ecosystem (Docs → Gemini)
+- Sensitive data automatically masked in logs
 
 ## License
 
