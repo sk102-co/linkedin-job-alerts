@@ -1,6 +1,6 @@
 import { google, sheets_v4 } from 'googleapis';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { Logger } from '../utils/logger';
+import { getSecret, SECRET_NAMES } from '../utils/secrets';
 import {
   SHEET_NAMES,
   COLUMN_HEADERS,
@@ -9,15 +9,6 @@ import {
   STATUS_COLORS,
   JobStatus,
 } from './schema';
-
-/**
- * Secret names in Google Secret Manager
- */
-const SECRET_NAMES = {
-  CLIENT_ID: 'linkedin-job-alert-client-id',
-  CLIENT_SECRET: 'linkedin-job-alert-client-secret',
-  REFRESH_TOKEN: 'linkedin-job-alert-refresh-token',
-} as const;
 
 /**
  * OAuth scopes required for Sheets API
@@ -30,7 +21,6 @@ export const SHEETS_SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 export class SheetsClient {
   private sheets: sheets_v4.Sheets | null = null;
   private readonly logger: Logger;
-  private readonly secretManager: SecretManagerServiceClient;
   private readonly projectId: string;
   private readonly spreadsheetId: string;
 
@@ -38,7 +28,6 @@ export class SheetsClient {
     this.projectId = projectId;
     this.spreadsheetId = spreadsheetId;
     this.logger = logger;
-    this.secretManager = new SecretManagerServiceClient();
   }
 
   /**
@@ -46,9 +35,9 @@ export class SheetsClient {
    */
   async initialize(): Promise<void> {
     const [clientId, clientSecret, refreshToken] = await Promise.all([
-      this.getSecret(SECRET_NAMES.CLIENT_ID),
-      this.getSecret(SECRET_NAMES.CLIENT_SECRET),
-      this.getSecret(SECRET_NAMES.REFRESH_TOKEN),
+      getSecret(this.projectId, SECRET_NAMES.CLIENT_ID),
+      getSecret(this.projectId, SECRET_NAMES.CLIENT_SECRET),
+      getSecret(this.projectId, SECRET_NAMES.REFRESH_TOKEN),
     ]);
 
     const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
@@ -56,25 +45,6 @@ export class SheetsClient {
 
     this.sheets = google.sheets({ version: 'v4', auth: oauth2Client });
     this.logger.info('Sheets client initialized');
-  }
-
-  /**
-   * Fetches a secret from Google Secret Manager
-   */
-  private async getSecret(secretName: string): Promise<string> {
-    const name = `projects/${this.projectId}/secrets/${secretName}/versions/latest`;
-
-    const [version] = await this.secretManager.accessSecretVersion({ name });
-    const payload = version.payload?.data;
-
-    if (!payload) {
-      throw new Error(`Secret ${secretName} has no payload`);
-    }
-
-    if (typeof payload === 'string') {
-      return payload;
-    }
-    return Buffer.from(payload).toString('utf8');
   }
 
   /**
@@ -155,10 +125,11 @@ export class SheetsClient {
       },
     });
 
-    // Add headers
+    // Add headers - use dynamic column letter based on actual column count
+    const lastColumnLetter = this.getColumnLetter(TOTAL_COLUMNS - 1);
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
-      range: `${SHEET_NAMES.JOBS}!A1:N1`,
+      range: `${SHEET_NAMES.JOBS}!A1:${lastColumnLetter}1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [[...COLUMN_HEADERS]],
@@ -173,15 +144,31 @@ export class SheetsClient {
   private async ensureJobsSheetHeaders(): Promise<void> {
     if (!this.sheets) return;
 
+    const lastColumnLetter = this.getColumnLetter(TOTAL_COLUMNS - 1);
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
-      range: `${SHEET_NAMES.JOBS}!A1:N1`,
+      range: `${SHEET_NAMES.JOBS}!A1:${lastColumnLetter}1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [[...COLUMN_HEADERS]],
       },
     });
     this.logger.info('Ensured Jobs sheet headers exist');
+  }
+
+  /**
+   * Converts a 0-based column index to a column letter (A, B, ..., Z, AA, AB, ...)
+   */
+  private getColumnLetter(index: number): string {
+    let letter = '';
+    let remaining = index;
+
+    while (remaining >= 0) {
+      letter = String.fromCharCode((remaining % 26) + 65) + letter;
+      remaining = Math.floor(remaining / 26) - 1;
+    }
+
+    return letter;
   }
 
   /**

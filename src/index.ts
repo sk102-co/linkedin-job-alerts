@@ -41,6 +41,7 @@ import { ClaudeClient } from './claude';
 import { JobResumeAnalyzer } from './matcher';
 import { JobStatus } from './sheets/schema';
 import { Logger } from './utils/logger';
+import { deduplicateBy } from './utils/deduplication';
 import { Job } from './types/job';
 
 /**
@@ -153,7 +154,7 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
     }
 
     // Deduplicate jobs across all emails
-    const uniqueJobs = deduplicateJobs(allJobs);
+    const uniqueJobs = deduplicateBy(allJobs, (job) => job.jobId);
     logger.info('Jobs deduplicated across emails', {
       before: allJobs.length,
       after: uniqueJobs.length,
@@ -286,19 +287,3 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
   }
 };
 
-/**
- * Deduplicates jobs by job ID
- */
-function deduplicateJobs(jobs: Job[]): Job[] {
-  const seen = new Set<string>();
-  const unique: Job[] = [];
-
-  for (const job of jobs) {
-    if (!seen.has(job.jobId)) {
-      seen.add(job.jobId);
-      unique.push(job);
-    }
-  }
-
-  return unique;
-}

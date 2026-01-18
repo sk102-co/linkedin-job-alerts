@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
 import { Job, safeParseJob } from '../types/job';
 import { Logger } from '../utils/logger';
+import { deduplicateBy } from '../utils/deduplication';
 
 /**
  * Regex pattern to extract job ID from LinkedIn job URL
@@ -43,7 +44,7 @@ export class LinkedInEmailParser {
     });
 
     // Deduplicate by job ID (same job might appear multiple times in email)
-    const uniqueJobs = this.deduplicateJobs(jobs);
+    const uniqueJobs = deduplicateBy(jobs, (job) => job.jobId);
 
     this.logger.info('Parsed jobs from email', {
       totalFound: jobs.length,
@@ -65,8 +66,13 @@ export class LinkedInEmailParser {
     $: cheerio.CheerioAPI,
     card: cheerio.Cheerio<AnyNode>
   ): Job | null {
+    // Cache common selector results to avoid redundant DOM traversals
+    const jobLinks = card.find('a[href*="jobs/view"]');
+    const paragraphs = card.find('p');
+    const companyImg = card.find('img[alt]:not([alt=""])').first();
+
     // Find the job URL from any link with jobs/view
-    const jobLink = card.find('a[href*="jobs/view"]').first();
+    const jobLink = jobLinks.first();
     const rawUrl = jobLink.attr('href');
     if (!rawUrl) {
       return null;
@@ -89,14 +95,14 @@ export class LinkedInEmailParser {
     let title = '';
 
     // Strategy 1: font-bold link (jobalerts-noreply format)
-    const fontBoldLink = card.find('a.font-bold[href*="jobs/view"]');
+    const fontBoldLink = jobLinks.filter('.font-bold');
     if (fontBoldLink.length > 0) {
       title = fontBoldLink.text().trim();
     }
 
     // Strategy 2: Any link to jobs/view with text (not containing an image)
     if (!title) {
-      card.find('a[href*="jobs/view"]').each((_, el): boolean | void => {
+      jobLinks.each((_, el): boolean | void => {
         const $el = $(el);
         const linkText = $el.text().trim();
         // Skip links that only contain images or have no meaningful text
@@ -123,8 +129,7 @@ export class LinkedInEmailParser {
     title = title || 'Unknown Title';
 
     // Extract company name from img alt attribute
-    const companyImg = card.find('img[alt]:not([alt=""])').first();
-    let company = companyImg.attr('alt') || '';
+    let company = companyImg.attr('alt') ?? '';
 
     // Filter out non-company alt texts like "Premium", empty strings, etc.
     if (['Premium', 'premium', ''].includes(company)) {
@@ -133,7 +138,6 @@ export class LinkedInEmailParser {
 
     // Extract location from paragraph text
     let location = '';
-    const paragraphs = card.find('p');
     paragraphs.each((_, p) => {
       const text = $(p).text().trim();
       // Look for text that contains location patterns (after ·)
@@ -205,20 +209,4 @@ export class LinkedInEmailParser {
     }
   }
 
-  /**
-   * Deduplicates jobs by job ID
-   */
-  private deduplicateJobs(jobs: Job[]): Job[] {
-    const seen = new Set<string>();
-    const unique: Job[] = [];
-
-    for (const job of jobs) {
-      if (!seen.has(job.jobId)) {
-        seen.add(job.jobId);
-        unique.push(job);
-      }
-    }
-
-    return unique;
-  }
 }

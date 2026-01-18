@@ -73,6 +73,8 @@ describe('Column definitions', () => {
       'location',
       'url',
       'notes',
+      'requirements_met',
+      'requirements_gaps',
     ]);
   });
 
@@ -91,10 +93,12 @@ describe('Column definitions', () => {
     expect(COLUMN_INDEX.LOCATION).toBe(11);
     expect(COLUMN_INDEX.URL).toBe(12);
     expect(COLUMN_INDEX.NOTES).toBe(13);
+    expect(COLUMN_INDEX.REQUIREMENTS_MET).toBe(14);
+    expect(COLUMN_INDEX.REQUIREMENTS_GAPS).toBe(15);
   });
 
   it('should have header count matching column count', () => {
-    expect(COLUMN_HEADERS.length).toBe(COLUMN_INDEX.NOTES + 1);
+    expect(COLUMN_HEADERS.length).toBe(COLUMN_INDEX.REQUIREMENTS_GAPS + 1);
   });
 });
 

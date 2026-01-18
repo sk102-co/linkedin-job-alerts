@@ -1,21 +1,17 @@
 import { google, gmail_v1 } from 'googleapis';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { Logger } from '../utils/logger';
-
-/**
- * Secret names in Google Secret Manager
- */
-const SECRET_NAMES = {
-  CLIENT_ID: 'linkedin-job-alert-client-id',
-  CLIENT_SECRET: 'linkedin-job-alert-client-secret',
-  REFRESH_TOKEN: 'linkedin-job-alert-refresh-token',
-} as const;
+import { getSecret, SECRET_NAMES } from '../utils/secrets';
 
 /**
  * Gmail query to find LinkedIn job alert emails from all sender addresses
  */
 const LINKEDIN_JOB_ALERT_QUERY =
   '(from:jobalerts-noreply@linkedin.com OR from:jobs-noreply@linkedin.com OR from:jobs-listings@linkedin.com)';
+
+/**
+ * Maximum concurrent message body fetches to avoid rate limiting
+ */
+const MAX_CONCURRENT_MESSAGE_FETCHES = 5;
 
 /**
  * Allowed sender emails for validation (defense in depth)
@@ -51,14 +47,12 @@ export interface GmailMessage {
 export class GmailClient {
   private gmail: gmail_v1.Gmail | null = null;
   private readonly logger: Logger;
-  private readonly secretManager: SecretManagerServiceClient;
   private readonly projectId: string;
   private processedLabelId: string | null = null;
 
   constructor(projectId: string, logger: Logger) {
     this.projectId = projectId;
     this.logger = logger;
-    this.secretManager = new SecretManagerServiceClient();
   }
 
   /**
@@ -66,9 +60,9 @@ export class GmailClient {
    */
   async initialize(): Promise<void> {
     const [clientId, clientSecret, refreshToken] = await Promise.all([
-      this.getSecret(SECRET_NAMES.CLIENT_ID),
-      this.getSecret(SECRET_NAMES.CLIENT_SECRET),
-      this.getSecret(SECRET_NAMES.REFRESH_TOKEN),
+      getSecret(this.projectId, SECRET_NAMES.CLIENT_ID),
+      getSecret(this.projectId, SECRET_NAMES.CLIENT_SECRET),
+      getSecret(this.projectId, SECRET_NAMES.REFRESH_TOKEN),
     ]);
 
     const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
@@ -76,25 +70,6 @@ export class GmailClient {
 
     this.gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     this.logger.info('Gmail client initialized');
-  }
-
-  /**
-   * Fetches a secret from Google Secret Manager
-   */
-  private async getSecret(secretName: string): Promise<string> {
-    const name = `projects/${this.projectId}/secrets/${secretName}/versions/latest`;
-
-    const [version] = await this.secretManager.accessSecretVersion({ name });
-    const payload = version.payload?.data;
-
-    if (!payload) {
-      throw new Error(`Secret ${secretName} has no payload`);
-    }
-
-    if (typeof payload === 'string') {
-      return payload;
-    }
-    return Buffer.from(payload).toString('utf8');
   }
 
   /**
@@ -113,7 +88,8 @@ export class GmailClient {
 
     this.logger.info('Fetching job alert emails', { query });
 
-    const messages: GmailMessage[] = [];
+    // Collect all message IDs first
+    const messageIds: string[] = [];
     let pageToken: string | undefined;
 
     do {
@@ -128,17 +104,40 @@ export class GmailClient {
 
       for (const message of messageList) {
         if (message.id) {
-          const fullMessage = await this.fetchMessageBody(message.id);
-          if (fullMessage) {
-            messages.push(fullMessage);
-          }
+          messageIds.push(message.id);
         }
       }
 
       pageToken = response.data.nextPageToken ?? undefined;
     } while (pageToken);
 
+    // Fetch message bodies in parallel with concurrency limit
+    const messages = await this.fetchMessageBodiesInParallel(messageIds);
+
     this.logger.info('Finished fetching emails', { totalCount: messages.length });
+    return messages;
+  }
+
+  /**
+   * Fetches message bodies in parallel with concurrency limit
+   */
+  private async fetchMessageBodiesInParallel(messageIds: string[]): Promise<GmailMessage[]> {
+    const messages: GmailMessage[] = [];
+
+    // Process in batches to limit concurrency
+    for (let i = 0; i < messageIds.length; i += MAX_CONCURRENT_MESSAGE_FETCHES) {
+      const batch = messageIds.slice(i, i + MAX_CONCURRENT_MESSAGE_FETCHES);
+      const results = await Promise.all(
+        batch.map((id) => this.fetchMessageBody(id))
+      );
+
+      for (const result of results) {
+        if (result) {
+          messages.push(result);
+        }
+      }
+    }
+
     return messages;
   }
 

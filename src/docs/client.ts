@@ -22,17 +22,8 @@
  */
 
 import { google, docs_v1 } from 'googleapis';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { Logger } from '../utils/logger';
-
-/**
- * Secret names in Google Secret Manager
- */
-const SECRET_NAMES = {
-  CLIENT_ID: 'linkedin-job-alert-client-id',
-  CLIENT_SECRET: 'linkedin-job-alert-client-secret',
-  REFRESH_TOKEN: 'linkedin-job-alert-refresh-token',
-} as const;
+import { getSecret, SECRET_NAMES } from '../utils/secrets';
 
 /**
  * OAuth scopes required for Google Docs read access
@@ -45,13 +36,11 @@ export const DOCS_SCOPES = ['https://www.googleapis.com/auth/documents.readonly'
 export class DocsClient {
   private docs: docs_v1.Docs | null = null;
   private readonly logger: Logger;
-  private readonly secretManager: SecretManagerServiceClient;
   private readonly projectId: string;
 
   constructor(projectId: string, logger: Logger) {
     this.projectId = projectId;
     this.logger = logger;
-    this.secretManager = new SecretManagerServiceClient();
   }
 
   /**
@@ -59,9 +48,9 @@ export class DocsClient {
    */
   async initialize(): Promise<void> {
     const [clientId, clientSecret, refreshToken] = await Promise.all([
-      this.getSecret(SECRET_NAMES.CLIENT_ID),
-      this.getSecret(SECRET_NAMES.CLIENT_SECRET),
-      this.getSecret(SECRET_NAMES.REFRESH_TOKEN),
+      getSecret(this.projectId, SECRET_NAMES.CLIENT_ID),
+      getSecret(this.projectId, SECRET_NAMES.CLIENT_SECRET),
+      getSecret(this.projectId, SECRET_NAMES.REFRESH_TOKEN),
     ]);
 
     const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
@@ -69,25 +58,6 @@ export class DocsClient {
 
     this.docs = google.docs({ version: 'v1', auth: oauth2Client });
     this.logger.info('Docs client initialized');
-  }
-
-  /**
-   * Fetches a secret from Google Secret Manager
-   */
-  private async getSecret(secretName: string): Promise<string> {
-    const name = `projects/${this.projectId}/secrets/${secretName}/versions/latest`;
-
-    const [version] = await this.secretManager.accessSecretVersion({ name });
-    const payload = version.payload?.data;
-
-    if (!payload) {
-      throw new Error(`Secret ${secretName} has no payload`);
-    }
-
-    if (typeof payload === 'string') {
-      return payload;
-    }
-    return Buffer.from(payload).toString('utf8');
   }
 
   /**

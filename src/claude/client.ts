@@ -29,16 +29,10 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { Logger } from '../utils/logger';
+import { getSecret, SECRET_NAMES } from '../utils/secrets';
+import { parseAIJsonResponse } from '../utils/json-parser';
 import { Job } from '../types';
-
-/**
- * Secret names in Google Secret Manager
- */
-const SECRET_NAMES = {
-  CLAUDE_API_KEY: 'linkedin-job-alert-claude-api-key',
-} as const;
 
 /**
  * Model to use for analysis
@@ -70,42 +64,21 @@ export interface MatchAnalysisResult {
 export class ClaudeClient {
   private client: Anthropic | null = null;
   private readonly logger: Logger;
-  private readonly secretManager: SecretManagerServiceClient;
   private readonly projectId: string;
 
   constructor(projectId: string, logger: Logger) {
     this.projectId = projectId;
     this.logger = logger;
-    this.secretManager = new SecretManagerServiceClient();
   }
 
   /**
    * Initializes the Claude client with API key from Secret Manager
    */
   async initialize(): Promise<void> {
-    const apiKey = await this.getSecret(SECRET_NAMES.CLAUDE_API_KEY);
+    const apiKey = await getSecret(this.projectId, SECRET_NAMES.CLAUDE_API_KEY);
 
     this.client = new Anthropic({ apiKey });
     this.logger.info('Claude client initialized', { model: CLAUDE_MODEL });
-  }
-
-  /**
-   * Fetches a secret from Google Secret Manager
-   */
-  private async getSecret(secretName: string): Promise<string> {
-    const name = `projects/${this.projectId}/secrets/${secretName}/versions/latest`;
-
-    const [version] = await this.secretManager.accessSecretVersion({ name });
-    const payload = version.payload?.data;
-
-    if (!payload) {
-      throw new Error(`Secret ${secretName} has no payload`);
-    }
-
-    if (typeof payload === 'string') {
-      return payload;
-    }
-    return Buffer.from(payload).toString('utf8');
   }
 
   /**
@@ -270,7 +243,7 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
         return null;
       }
 
-      const parsed = this.parseJsonResponse<MatchAnalysisResult>(responseText);
+      const parsed = parseAIJsonResponse<MatchAnalysisResult>(responseText);
 
       if (!parsed || typeof parsed.probability !== 'number') {
         this.logger.warn('Invalid match analysis response from Claude', {
@@ -317,24 +290,4 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
     }
   }
 
-  /**
-   * Parses JSON response from Claude, handling markdown code blocks
-   */
-  private parseJsonResponse<T>(responseText: string): T | null {
-    try {
-      // Remove markdown code block if present
-      let jsonStr = responseText;
-      const codeBlockMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-      if (codeBlockMatch) {
-        jsonStr = codeBlockMatch[1];
-      }
-
-      return JSON.parse(jsonStr) as T;
-    } catch {
-      this.logger.warn('Failed to parse JSON response from Claude', {
-        responsePreview: responseText.slice(0, 200),
-      });
-      return null;
-    }
-  }
 }
