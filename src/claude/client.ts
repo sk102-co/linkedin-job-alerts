@@ -56,6 +56,12 @@ const MAX_TOKENS = 1024;
 export interface MatchAnalysisResult {
   probability: number;
   reasoning: string;
+  /** Number of requirements the candidate meets */
+  requirementsMet?: number;
+  /** Total number of requirements from the job posting */
+  requirementsTotal?: number;
+  /** List of unmet requirements with brief explanations */
+  requirementsGaps?: string[];
 }
 
 /**
@@ -213,10 +219,23 @@ ${penaltiesSection}
 5. A score of 70+ should be reserved for genuinely strong matches
 6. Consider: would this resume make it past an ATS and initial recruiter screen?
 
+## REQUIREMENTS TRACKING
+
+Count the explicit requirements from the job posting (or typical requirements for this role type if no job description is provided):
+- requirementsTotal: Total number of distinct required AND strongly preferred qualifications
+- requirementsMet: How many the candidate clearly demonstrates
+- requirementsGaps: List each unmet requirement with brief explanation
+
+Only count clear, specific requirements (not vague "nice to haves"). Examples of countable requirements:
+- "5+ years Python experience" → 1 requirement
+- "Bachelor's degree in CS or related field" → 1 requirement
+- "Experience with React, TypeScript, and Node.js" → 3 requirements (count each technology)
+- "Strong communication skills" → 0 (too vague, don't count)
+
 ## RESPONSE FORMAT
 
 Respond ONLY with valid JSON (no markdown, no code blocks):
-{"probability": <number 0-100>, "reasoning": "<${reasoningInstruction}>"}`;
+{"probability": <number 0-100>, "reasoning": "<${reasoningInstruction}>", "requirementsMet": <number>, "requirementsTotal": <number>, "requirementsGaps": ["<unmet requirement 1 with brief explanation>", "<unmet requirement 2 with brief explanation>"]}`;
 
     try {
       const response = await this.client.messages.create({
@@ -263,14 +282,31 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
 
       const probability = Math.max(0, Math.min(100, Math.round(parsed.probability)));
 
+      // Extract requirements tracking fields
+      const requirementsMet = typeof parsed.requirementsMet === 'number'
+        ? Math.max(0, Math.round(parsed.requirementsMet))
+        : undefined;
+      const requirementsTotal = typeof parsed.requirementsTotal === 'number'
+        ? Math.max(0, Math.round(parsed.requirementsTotal))
+        : undefined;
+      const requirementsGaps = Array.isArray(parsed.requirementsGaps)
+        ? parsed.requirementsGaps.filter((g): g is string => typeof g === 'string')
+        : undefined;
+
       this.logger.info('Claude match probability calculated', {
         probability,
         reasoning: parsed.reasoning,
+        requirementsMet,
+        requirementsTotal,
+        requirementsGapsCount: requirementsGaps?.length,
       });
 
       return {
         probability,
         reasoning: parsed.reasoning ?? '',
+        requirementsMet,
+        requirementsTotal,
+        requirementsGaps,
       };
     } catch (error) {
       this.logger.error('Failed to calculate match probability with Claude', {

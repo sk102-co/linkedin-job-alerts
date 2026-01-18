@@ -54,6 +54,12 @@ export interface MatchAnalysisResult {
   probability: number;
   reasoning: string;
   jobDescription?: string;
+  /** Number of requirements the candidate meets */
+  requirementsMet?: number;
+  /** Total number of requirements from the job posting */
+  requirementsTotal?: number;
+  /** List of unmet requirements with brief explanations */
+  requirementsGaps?: string[];
 }
 
 /**
@@ -182,10 +188,23 @@ Score the match probability from 0-100. BE CONSERVATIVE AND REALISTIC.
 5. A score of 70+ should be reserved for genuinely strong matches
 6. Consider: would this resume make it past an ATS and initial recruiter screen?
 
+## STEP 4: REQUIREMENTS TRACKING
+
+Count the explicit requirements from the job posting:
+- requirementsTotal: Total number of distinct required AND strongly preferred qualifications
+- requirementsMet: How many the candidate clearly demonstrates
+- requirementsGaps: List each unmet requirement with brief explanation
+
+Only count clear, specific requirements (not vague "nice to haves"). Examples of countable requirements:
+- "5+ years Python experience" → 1 requirement
+- "Bachelor's degree in CS or related field" → 1 requirement
+- "Experience with React, TypeScript, and Node.js" → 3 requirements (count each technology)
+- "Strong communication skills" → 0 (too vague, don't count)
+
 ## RESPONSE FORMAT
 
 Respond ONLY with valid JSON (no markdown, no code blocks):
-{"probability": <number 0-100>, "reasoning": "<2-3 sentences citing SPECIFIC requirements from the job posting and how the candidate does or doesn't meet them>", "jobDescription": "<summarized job description including: role overview, required qualifications, preferred qualifications, key responsibilities, and any specific requirements like years of experience or technologies>"}`;
+{"probability": <number 0-100>, "reasoning": "<2-3 sentences citing SPECIFIC requirements from the job posting and how the candidate does or doesn't meet them>", "jobDescription": "<summarized job description including: role overview, required qualifications, preferred qualifications, key responsibilities, and any specific requirements like years of experience or technologies>", "requirementsMet": <number>, "requirementsTotal": <number>, "requirementsGaps": ["<unmet requirement 1 with brief explanation>", "<unmet requirement 2 with brief explanation>"]}`;
 
     // Try with Google Search grounding first, retry without if it fails
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -237,18 +256,35 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
             : JSON.stringify(parsed.jobDescription);
         }
 
+        // Extract requirements tracking fields
+        const requirementsMet = typeof parsed.requirementsMet === 'number'
+          ? Math.max(0, Math.round(parsed.requirementsMet))
+          : undefined;
+        const requirementsTotal = typeof parsed.requirementsTotal === 'number'
+          ? Math.max(0, Math.round(parsed.requirementsTotal))
+          : undefined;
+        const requirementsGaps = Array.isArray(parsed.requirementsGaps)
+          ? parsed.requirementsGaps.filter((g): g is string => typeof g === 'string')
+          : undefined;
+
         this.logger.info('Match probability calculated', {
           probability,
           reasoning: parsed.reasoning,
           hasJobDescription: Boolean(jobDescription),
           jobDescriptionType: typeof parsed.jobDescription,
           useGrounding,
+          requirementsMet,
+          requirementsTotal,
+          requirementsGapsCount: requirementsGaps?.length,
         });
 
         return {
           probability,
           reasoning: parsed.reasoning ?? '',
           jobDescription,
+          requirementsMet,
+          requirementsTotal,
+          requirementsGaps,
         };
       } catch (error) {
         this.logger.error('Failed to calculate match probability', {

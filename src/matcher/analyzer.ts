@@ -73,6 +73,12 @@ export interface MatchResult {
   geminiReasoning?: string;
   /** Claude's reasoning (when dual-model is enabled) */
   claudeReasoning?: string;
+  /** Number of requirements the candidate meets */
+  requirementsMet?: number | null;
+  /** Total number of requirements from the job posting */
+  requirementsTotal?: number | null;
+  /** List of unmet requirements with brief explanations */
+  requirementsGaps?: string[];
 }
 
 /**
@@ -166,6 +172,9 @@ export class JobResumeAnalyzer {
         probability: analysisResult.probability,
         status,
         reasoning: analysisResult.reasoning,
+        requirementsMet: analysisResult.requirementsMet ?? null,
+        requirementsTotal: analysisResult.requirementsTotal ?? null,
+        requirementsGaps: analysisResult.requirementsGaps ?? [],
       };
     } catch (error) {
       this.logger.error('Error analyzing job - marking as not available', {
@@ -257,12 +266,25 @@ export class JobResumeAnalyzer {
 
     const status = this.determineStatus(probability);
 
+    // Aggregate requirements data from both models
+    const { requirementsMet, requirementsTotal, requirementsGaps } = this.aggregateRequirements(
+      geminiResult?.requirementsMet,
+      geminiResult?.requirementsTotal,
+      geminiResult?.requirementsGaps,
+      claudeResult?.requirementsMet,
+      claudeResult?.requirementsTotal,
+      claudeResult?.requirementsGaps
+    );
+
     this.logger.info('Dual-model analysis complete', {
       jobId: job.jobId,
       geminiProbability,
       claudeProbability,
       ensembleProbability: probability,
       status,
+      requirementsMet,
+      requirementsTotal,
+      requirementsGapsCount: requirementsGaps.length,
     });
 
     return {
@@ -274,7 +296,61 @@ export class JobResumeAnalyzer {
       claudeProbability,
       geminiReasoning: geminiResult?.reasoning,
       claudeReasoning: claudeResult?.reasoning,
+      requirementsMet,
+      requirementsTotal,
+      requirementsGaps,
     };
+  }
+
+  /**
+   * Aggregates requirements data from both models
+   * - requirementsMet: average of both, rounded
+   * - requirementsTotal: max of both (more conservative)
+   * - requirementsGaps: merge unique gaps from both
+   */
+  private aggregateRequirements(
+    geminiMet?: number,
+    geminiTotal?: number,
+    geminiGaps?: string[],
+    claudeMet?: number,
+    claudeTotal?: number,
+    claudeGaps?: string[]
+  ): { requirementsMet: number | null; requirementsTotal: number | null; requirementsGaps: string[] } {
+    // Aggregate requirementsMet (average, rounded)
+    let requirementsMet: number | null = null;
+    if (geminiMet !== undefined && claudeMet !== undefined) {
+      requirementsMet = Math.round((geminiMet + claudeMet) / 2);
+    } else if (geminiMet !== undefined) {
+      requirementsMet = geminiMet;
+    } else if (claudeMet !== undefined) {
+      requirementsMet = claudeMet;
+    }
+
+    // Aggregate requirementsTotal (max, more conservative)
+    let requirementsTotal: number | null = null;
+    if (geminiTotal !== undefined && claudeTotal !== undefined) {
+      requirementsTotal = Math.max(geminiTotal, claudeTotal);
+    } else if (geminiTotal !== undefined) {
+      requirementsTotal = geminiTotal;
+    } else if (claudeTotal !== undefined) {
+      requirementsTotal = claudeTotal;
+    }
+
+    // Merge unique gaps from both models
+    const allGaps = new Set<string>();
+    if (geminiGaps) {
+      for (const gap of geminiGaps) {
+        allGaps.add(gap);
+      }
+    }
+    if (claudeGaps) {
+      for (const gap of claudeGaps) {
+        allGaps.add(gap);
+      }
+    }
+    const requirementsGaps = Array.from(allGaps);
+
+    return { requirementsMet, requirementsTotal, requirementsGaps };
   }
 
   /**

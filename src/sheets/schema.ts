@@ -37,6 +37,8 @@ export const COLUMN_INDEX = {
   LOCATION: 11,
   URL: 12,
   NOTES: 13,
+  REQUIREMENTS_MET: 14,
+  REQUIREMENTS_GAPS: 15,
 } as const;
 
 /**
@@ -57,6 +59,8 @@ export const COLUMN_HEADERS = [
   'location',
   'url',
   'notes',
+  'requirements_met',
+  'requirements_gaps',
 ] as const;
 
 /**

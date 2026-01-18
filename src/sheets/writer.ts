@@ -53,7 +53,7 @@ export class SheetsWriter {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SHEET_NAMES.JOBS}!A:N`,
+      range: `${SHEET_NAMES.JOBS}!A:P`,
     });
 
     const values = response.data.values ?? [];
@@ -139,7 +139,7 @@ export class SheetsWriter {
 
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${SHEET_NAMES.JOBS}!A${nextRow}:N${nextRow + rows.length - 1}`,
+        range: `${SHEET_NAMES.JOBS}!A${nextRow}:P${nextRow + rows.length - 1}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: {
           values: rows,
@@ -205,12 +205,19 @@ export class SheetsWriter {
       return 0;
     }
 
-    // Batch update probability (column E) and potentially status (column B)
+    // Batch update probability (column E), requirements (columns O-P), and potentially status (column B)
     const data = jobsToUpdate.flatMap(({ rowNumber, matchResult }) => {
       const updates: { range: string; values: (string | number | null)[][] }[] = [
         {
           range: `${SHEET_NAMES.JOBS}!E${rowNumber}`,
           values: [[matchResult.probability]],
+        },
+        {
+          range: `${SHEET_NAMES.JOBS}!O${rowNumber}:P${rowNumber}`,
+          values: [[
+            this.formatRequirementsFraction(matchResult.requirementsMet, matchResult.requirementsTotal),
+            this.formatRequirementsGaps(matchResult.requirementsGaps),
+          ]],
         },
       ];
 
@@ -356,7 +363,7 @@ export class SheetsWriter {
     const status = matchResult?.status ?? JobStatus.NEW;
     const probability = matchResult?.probability ?? null;
 
-    const row: (string | number | null)[] = new Array(COLUMN_INDEX.NOTES + 1).fill(null);
+    const row: (string | number | null)[] = new Array(COLUMN_INDEX.REQUIREMENTS_GAPS + 1).fill(null);
 
     row[COLUMN_INDEX.JOB_ID] = job.jobId;
     row[COLUMN_INDEX.STATUS] = status;
@@ -376,8 +383,33 @@ export class SheetsWriter {
     row[COLUMN_INDEX.LOCATION] = sanitizeCellValue(job.location);
     row[COLUMN_INDEX.URL] = job.url;
     row[COLUMN_INDEX.NOTES] = '';
+    row[COLUMN_INDEX.REQUIREMENTS_MET] = this.formatRequirementsFraction(
+      matchResult?.requirementsMet,
+      matchResult?.requirementsTotal
+    );
+    row[COLUMN_INDEX.REQUIREMENTS_GAPS] = this.formatRequirementsGaps(matchResult?.requirementsGaps);
 
     return row;
+  }
+
+  /**
+   * Formats requirements as a fraction string (e.g., "7/10")
+   */
+  private formatRequirementsFraction(met?: number | null, total?: number | null): string {
+    if (met === null || met === undefined || total === null || total === undefined) {
+      return '';
+    }
+    return `${met}/${total}`;
+  }
+
+  /**
+   * Formats requirements gaps as a semicolon-separated string
+   */
+  private formatRequirementsGaps(gaps?: string[]): string {
+    if (!gaps || gaps.length === 0) {
+      return '';
+    }
+    return sanitizeCellValue(gaps.join('; '));
   }
 
   /**
