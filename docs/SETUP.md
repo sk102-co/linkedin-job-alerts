@@ -261,6 +261,7 @@ For more robust job matching, you can enable dual-model analysis that uses both 
      "jobsFound": 15,
      "jobsAnalyzed": 10,
      "jobsLowMatch": 4,
+     "jobsNotAvailable": 1,
      "jobsAdded": 10,
      "jobsUpdated": 2,
      "jobsSkipped": 3,
@@ -268,7 +269,7 @@ For more robust job matching, you can enable dual-model analysis that uses both 
    }
    ```
 
-   Note: `jobsAnalyzed` and `jobsLowMatch` will be `0` if job matching is not configured.
+   Note: `jobsAnalyzed`, `jobsLowMatch`, and `jobsNotAvailable` will be `0` if job matching is not configured.
 
 4. Verify jobs appear in your Google Sheet.
 
@@ -389,11 +390,11 @@ With default settings (every 6 hours = 4 invocations/day):
 | Secret Manager | 3-5 secrets, ~120 accesses | Free tier |
 | Cloud Scheduler | 1 job | Free tier |
 | Gemini API (optional) | ~500 requests/month | Free tier* |
-| Claude API (optional) | ~500 requests/month | ~$1.50** |
+| Claude API (optional) | ~500 requests/month | ~$0.50-1.00** |
 
 **Total: $0/month** (Gemini only, within free tier limits)
-**Total: ~$1.50/month** (Dual-model with Claude enabled)
+**Total: ~$0.50-1.00/month** (Dual-model with Claude enabled)
 
 *Gemini API free tier includes 60 requests/minute for gemini-2.0-flash. Job matching analyzes each new job once, so costs depend on job volume. See [Gemini API pricing](https://ai.google.dev/pricing) for details.
 
-**Claude API pricing is usage-based. Claude Sonnet costs $3/MTok input, $15/MTok output. Typical job analysis uses ~2K tokens per request. See [Claude API pricing](https://www.anthropic.com/pricing) for details.
+**Claude API pricing is usage-based. Claude Sonnet costs $3/MTok input, $15/MTok output. Actual cost depends on job volume and description lengths. See [Claude API pricing](https://www.anthropic.com/pricing) for details.
