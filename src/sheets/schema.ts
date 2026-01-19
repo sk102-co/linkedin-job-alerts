@@ -118,3 +118,11 @@ export const STATUS_COLORS: Record<JobStatus, { background: string; text: string
  * Threshold for low match probability (jobs below this get LOW_MATCH status)
  */
 export const LOW_MATCH_THRESHOLD = 70;
+
+/**
+ * Configuration for the ignored companies section in _Config sheet
+ */
+export const IGNORED_COMPANIES_CONFIG = {
+  HEADER: 'Ignored Companies',
+  COLUMN: 'C',
+} as const;

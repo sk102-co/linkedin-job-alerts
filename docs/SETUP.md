@@ -148,8 +148,29 @@ gcloud secrets list
    - Status dropdown validation
    - Conditional formatting by status
    - Hidden job_id column
+   - `_Config` sheet with status values and company ignore list
 
-## Step 5b: (Optional) Set Up Resume for Job Matching
+## Step 5b: (Optional) Configure Company Ignore List
+
+You can skip jobs from specific companies by adding them to the ignore list:
+
+1. After the first run, open the `_Config` sheet in your spreadsheet
+2. In column C, you'll see the header "Ignored Companies"
+3. Add company names below the header, one per row:
+
+   | C                    |
+   |----------------------|
+   | Ignored Companies    |
+   | Acme Corp            |
+   | BadCompany Inc       |
+
+**Matching rules:**
+- Case-insensitive: "Google" matches "google", "GOOGLE", etc.
+- Exact match only: "Google" does NOT match "Google LLC"
+
+Jobs from ignored companies are filtered before AI analysis, saving API costs.
+
+## Step 5d: (Optional) Set Up Resume for Job Matching
 
 If you want to enable AI-powered job-resume matching:
 
@@ -166,7 +187,7 @@ If you want to enable AI-powered job-resume matching:
    - Calculate a match probability (0-100%)
    - Automatically set status to "LOW MATCH" for jobs with probability < 70%
 
-## Step 5c: (Optional) Enable Dual-Model Analysis
+## Step 5e: (Optional) Enable Dual-Model Analysis
 
 For more robust job matching, you can enable dual-model analysis that uses both Gemini and Claude:
 
@@ -259,6 +280,7 @@ For more robust job matching, you can enable dual-model analysis that uses both 
      "success": true,
      "emailsProcessed": 3,
      "jobsFound": 15,
+     "jobsIgnoredByCompany": 2,
      "jobsAnalyzed": 10,
      "jobsLowMatch": 4,
      "jobsNotAvailable": 1,
@@ -269,7 +291,7 @@ For more robust job matching, you can enable dual-model analysis that uses both 
    }
    ```
 
-   Note: `jobsAnalyzed`, `jobsLowMatch`, and `jobsNotAvailable` will be `0` if job matching is not configured.
+   Note: `jobsAnalyzed`, `jobsLowMatch`, and `jobsNotAvailable` will be `0` if job matching is not configured. `jobsIgnoredByCompany` shows how many jobs were skipped due to the company ignore list.
 
 4. Verify jobs appear in your Google Sheet.
 

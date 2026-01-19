@@ -42,6 +42,7 @@ import { JobResumeAnalyzer } from './matcher';
 import { JobStatus } from './sheets/schema';
 import { Logger } from './utils/logger';
 import { deduplicateBy } from './utils/deduplication';
+import { filterJobsByCompany } from './utils/company-filter';
 import { Job } from './types/job';
 
 /**
@@ -73,6 +74,7 @@ interface ProcessingResult {
   success: boolean;
   emailsProcessed: number;
   jobsFound: number;
+  jobsIgnoredByCompany: number;
   jobsAnalyzed: number;
   jobsLowMatch: number;
   jobsNotAvailable: number;
@@ -93,6 +95,7 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
     success: false,
     emailsProcessed: 0,
     jobsFound: 0,
+    jobsIgnoredByCompany: 0,
     jobsAnalyzed: 0,
     jobsLowMatch: 0,
     jobsNotAvailable: 0,
@@ -160,16 +163,33 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
       after: uniqueJobs.length,
     });
 
+    // Filter out jobs from ignored companies
+    const ignoredCompanies = await sheetsClient.getIgnoredCompanies();
+    const { filtered: filteredJobs, ignoredCount } = filterJobsByCompany(
+      uniqueJobs,
+      ignoredCompanies,
+      logger
+    );
+    result.jobsIgnoredByCompany = ignoredCount;
+
+    if (ignoredCount > 0) {
+      logger.info('Jobs filtered by company ignore list', {
+        before: uniqueJobs.length,
+        after: filteredJobs.length,
+        ignored: ignoredCount,
+      });
+    }
+
     // Create writer early to check existing jobs BEFORE Gemini analysis
     const writer = new SheetsWriter(sheetsClient, logger);
     const { allJobIds: existingJobIds, jobsNeedingAnalysis } = await writer.getExistingJobIds();
 
     // Separate new jobs from existing ones
-    const newJobs = uniqueJobs.filter((job) => !existingJobIds.has(job.jobId));
-    const existingJobsInBatch = uniqueJobs.filter((job) => existingJobIds.has(job.jobId));
+    const newJobs = filteredJobs.filter((job) => !existingJobIds.has(job.jobId));
+    const existingJobsInBatch = filteredJobs.filter((job) => existingJobIds.has(job.jobId));
 
     logger.info('Jobs filtered against sheet', {
-      totalUnique: uniqueJobs.length,
+      totalFiltered: filteredJobs.length,
       newJobs: newJobs.length,
       existingInSheet: existingJobsInBatch.length,
       existingNeedingAnalysis: jobsNeedingAnalysis.size,
@@ -190,7 +210,7 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
 
         logger.info('Resume document configured, initializing matching analysis', {
           jobsToAnalyze: jobsToAnalyze.length,
-          skippingAlreadyAnalyzed: uniqueJobs.length - jobsToAnalyze.length,
+          skippingAlreadyAnalyzed: filteredJobs.length - jobsToAnalyze.length,
           dualModelEnabled: enableClaudeAnalysis,
         });
 
@@ -244,7 +264,7 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
     }
 
     // Write jobs to sheet (writer already has existing jobs loaded)
-    const writeResult = await writer.appendJobs(uniqueJobs, matchResults);
+    const writeResult = await writer.appendJobs(filteredJobs, matchResults);
 
     result.jobsAdded = writeResult.jobsAdded;
     result.jobsUpdated = writeResult.jobsUpdated;
@@ -266,6 +286,7 @@ export const processJobAlerts: HttpFunction = async (_req, res) => {
     logger.info('Processing complete', {
       emailsProcessed: result.emailsProcessed,
       jobsFound: result.jobsFound,
+      jobsIgnoredByCompany: result.jobsIgnoredByCompany,
       jobsAnalyzed: result.jobsAnalyzed,
       jobsLowMatch: result.jobsLowMatch,
       jobsNotAvailable: result.jobsNotAvailable,

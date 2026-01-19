@@ -8,7 +8,9 @@ import {
   JOB_STATUS_VALUES,
   STATUS_COLORS,
   JobStatus,
+  IGNORED_COMPANIES_CONFIG,
 } from './schema';
+import { normalizeCompanyNames } from '../utils/company-filter';
 
 /**
  * OAuth scopes required for Sheets API
@@ -199,11 +201,14 @@ export class SheetsClient {
 
   /**
    * Updates the Config sheet with current status values (idempotent)
+   * Also ensures the "Ignored Companies" header exists in column C
    */
   private async updateConfigSheetValues(): Promise<void> {
     if (!this.sheets) return;
 
     const statusValues = JOB_STATUS_VALUES.map((status) => [status]);
+
+    // Update status values in column A
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
       range: `${SHEET_NAMES.CONFIG}!A1:A${JOB_STATUS_VALUES.length}`,
@@ -212,6 +217,57 @@ export class SheetsClient {
         values: statusValues,
       },
     });
+
+    // Check if "Ignored Companies" header exists in column C
+    const headerResponse = await this.sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: `${SHEET_NAMES.CONFIG}!${IGNORED_COMPANIES_CONFIG.COLUMN}1`,
+    });
+
+    const currentHeader = headerResponse.data.values?.[0]?.[0];
+    if (currentHeader !== IGNORED_COMPANIES_CONFIG.HEADER) {
+      // Add the header
+      await this.sheets.spreadsheets.values.update({
+        spreadsheetId: this.spreadsheetId,
+        range: `${SHEET_NAMES.CONFIG}!${IGNORED_COMPANIES_CONFIG.COLUMN}1`,
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [[IGNORED_COMPANIES_CONFIG.HEADER]],
+        },
+      });
+      this.logger.info('Added Ignored Companies header to _Config sheet');
+    }
+  }
+
+  /**
+   * Retrieves the set of ignored company names from the _Config sheet
+   * @returns Set of company names (normalized to lowercase)
+   */
+  async getIgnoredCompanies(): Promise<Set<string>> {
+    if (!this.sheets) {
+      throw new Error('Sheets client not initialized');
+    }
+
+    const response = await this.sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: `${SHEET_NAMES.CONFIG}!${IGNORED_COMPANIES_CONFIG.COLUMN}:${IGNORED_COMPANIES_CONFIG.COLUMN}`,
+    });
+
+    const values = response.data.values ?? [];
+
+    // Skip header row (first row) and extract company names
+    const companyNames: string[] = [];
+    for (let i = 1; i < values.length; i++) {
+      const name = values[i]?.[0];
+      if (typeof name === 'string' && name.trim().length > 0) {
+        companyNames.push(name);
+      }
+    }
+
+    const normalizedSet = normalizeCompanyNames(companyNames);
+    this.logger.info('Loaded ignored companies', { count: normalizedSet.size });
+
+    return normalizedSet;
   }
 
   /**

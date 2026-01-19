@@ -27,6 +27,7 @@ The result: a clean, organized spreadsheet of unique job opportunities ranked by
 - **Match probability** — See a 0-100% score for how well each job fits your background
 - **Requirements tracking** — See which job requirements you meet and which you're missing
 - **Smart filtering** — Jobs below 70% match are auto-labeled "LOW MATCH"
+- **Company ignore list** — Skip jobs from specific companies you're not interested in
 - **Google Search grounding** — AI fetches actual job descriptions from LinkedIn postings
 - **Multi-sender support** — Processes emails from `jobalerts-noreply@linkedin.com`, `jobs-noreply@linkedin.com`, and `jobs-listings@linkedin.com`
 - **Intelligent deduplication** — Same job appearing in 10 emails? You'll see it once
@@ -106,6 +107,31 @@ ENABLE_CLAUDE_ANALYSIS=true               # Enables dual-model analysis
 To enable AI-powered job matching, create a Google Doc with your resume and set `RESUME_DOC_ID` to the document ID from the URL (the part after `/d/` and before `/edit`).
 
 To enable dual-model analysis with Claude, set `ENABLE_CLAUDE_ANALYSIS=true` and store your Claude API key in Secret Manager as `linkedin-job-alert-claude-api-key`.
+
+## Company Ignore List
+
+You can skip jobs from specific companies by adding them to the ignore list in your spreadsheet:
+
+1. Open your Google Sheet
+2. Go to the `_Config` sheet (created automatically on first run)
+3. In column C, you'll see the header "Ignored Companies"
+4. Add company names below the header, one per row
+
+**Example:**
+```
+| C                    |
+|----------------------|
+| Ignored Companies    |  <- Header (don't delete)
+| Acme Corp            |
+| BadCompany Inc       |
+| Spammy Recruiters    |
+```
+
+**Matching rules:**
+- **Case-insensitive** — "Google" matches "google", "GOOGLE", etc.
+- **Exact match only** — "Google" does NOT match "Google LLC" or "Alphabet/Google"
+
+Jobs from ignored companies are filtered out before AI analysis, saving API costs.
 
 ## Development
 
