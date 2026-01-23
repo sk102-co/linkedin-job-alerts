@@ -368,7 +368,7 @@ export class SheetsClient {
       },
     });
 
-    // Add conditional formatting for each status
+    // Add conditional formatting for each status (applies to entire row)
     for (const status of Object.values(JobStatus)) {
       const colors = STATUS_COLORS[status];
       requests.push({
@@ -378,19 +378,21 @@ export class SheetsClient {
               {
                 sheetId,
                 startRowIndex: 1,
-                startColumnIndex: 1,
-                endColumnIndex: 2,
+                startColumnIndex: 0,
+                endColumnIndex: TOTAL_COLUMNS,
               },
             ],
             booleanRule: {
               condition: {
-                type: 'TEXT_EQ',
-                values: [{ userEnteredValue: status }],
+                // Use custom formula to check status column for entire row
+                type: 'CUSTOM_FORMULA',
+                values: [{ userEnteredValue: `=$B2="${status}"` }],
               },
               format: {
                 backgroundColor: this.hexToRgb(colors.background),
                 textFormat: {
                   foregroundColor: this.hexToRgb(colors.text),
+                  bold: colors.bold,
                 },
               },
             },

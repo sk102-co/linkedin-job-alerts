@@ -99,19 +99,32 @@ export function sanitizeCellValue(value: string): string {
 }
 
 /**
- * Conditional formatting colors for each status
+ * Styling configuration for each job status
+ * - background: Light pastel background color (hex)
+ * - text: Text color (hex)
+ * - bold: Whether to use bold font weight
+ *
+ * Color philosophy:
+ * - Positive/hopeful statuses: Blue and green pastel tones
+ * - Negative/closed statuses: Grey tones
+ * - Warning statuses: Amber tones
  */
-export const STATUS_COLORS: Record<JobStatus, { background: string; text: string }> = {
-  [JobStatus.NEW]: { background: '#E3F2FD', text: '#1565C0' },
-  [JobStatus.LOW_MATCH]: { background: '#FFF9C4', text: '#F57F17' },
-  [JobStatus.NOT_AVAILABLE]: { background: '#CFD8DC', text: '#37474F' },
-  [JobStatus.READ]: { background: '#F5F5F5', text: '#616161' },
-  [JobStatus.INTERESTED]: { background: '#E8F5E9', text: '#2E7D32' },
-  [JobStatus.NOT_INTERESTED]: { background: '#FFEBEE', text: '#C62828' },
-  [JobStatus.APPLIED]: { background: '#FFF3E0', text: '#E65100' },
-  [JobStatus.INTERVIEW_SCHEDULED]: { background: '#F3E5F5', text: '#7B1FA2' },
-  [JobStatus.DECLINED]: { background: '#ECEFF1', text: '#455A64' },
-  [JobStatus.ACCEPTED]: { background: '#C8E6C9', text: '#1B5E20' },
+export const STATUS_COLORS: Record<JobStatus, { background: string; text: string; bold: boolean }> = {
+  // Positive statuses - very light blue/green pastel tones
+  [JobStatus.NEW]: { background: '#F0F7FF', text: '#1565C0', bold: false },
+  [JobStatus.INTERESTED]: { background: '#F1F8F2', text: '#2E7D32', bold: false },
+  [JobStatus.APPLIED]: { background: '#E8F6F8', text: '#00796B', bold: true },
+  [JobStatus.INTERVIEW_SCHEDULED]: { background: '#F0F1FA', text: '#3949AB', bold: true },
+  [JobStatus.ACCEPTED]: { background: '#E8F5E9', text: '#1B5E20', bold: true },
+
+  // Warning/neutral statuses - very light amber/grey tones
+  [JobStatus.LOW_MATCH]: { background: '#FFFBF0', text: '#E65100', bold: false },
+  [JobStatus.READ]: { background: '#FAFAFA', text: '#616161', bold: false },
+
+  // Negative/closed statuses - muted grey tones (low contrast is acceptable)
+  [JobStatus.NOT_AVAILABLE]: { background: '#F5F5F5', text: '#9E9E9E', bold: false },
+  [JobStatus.NOT_INTERESTED]: { background: '#F5F5F5', text: '#BDBDBD', bold: false },
+  [JobStatus.DECLINED]: { background: '#F5F5F5', text: '#9E9E9E', bold: false },
 };
 
 /**
